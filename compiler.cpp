@@ -2184,6 +2184,7 @@ RoxorCompiler::compile_landing_pad_header(void)
     LandingPadInst *landing_pad = LandingPadInst::Create(
         StructType::get(PtrTy, Int32Ty, NULL),
         ConstantExpr::getBitCast(__gxx_personality_v0_func, PtrTy), 0, "", bb);
+    landing_pad->setCleanup(true);
 
     Value *exn_ptr = ExtractValueInst::Create(landing_pad, 0, "", bb);
 
