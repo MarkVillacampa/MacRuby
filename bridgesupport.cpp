@@ -12,19 +12,19 @@
 # include <map>
 # include <string>
 #else
-# include <llvm/Module.h>
-# include <llvm/DerivedTypes.h>
-# include <llvm/Constants.h>
-# include <llvm/CallingConv.h>
-# include <llvm/Instructions.h>
-# include <llvm/Intrinsics.h>
-# include <llvm/Analysis/DebugInfo.h>
+# include <llvm/IR/Module.h>
+# include <llvm/IR/DerivedTypes.h>
+# include <llvm/IR/Constants.h>
+# include <llvm/IR/CallingConv.h>
+# include <llvm/IR/Instructions.h>
+# include <llvm/IR/Intrinsics.h>
+# include <llvm/DebugInfo.h>
 # if !defined(LLVM_TOT)
-#  include <llvm/Analysis/DIBuilder.h>
+#  include <llvm/DIBuilder.h>
 # endif
 # include <llvm/ExecutionEngine/JIT.h>
 # include <llvm/PassManager.h>
-# include <llvm/Target/TargetData.h>
+# include <llvm/IR/DataLayout.h>
 using namespace llvm;
 #endif
 
@@ -277,7 +277,7 @@ RoxorCompiler::compile_set_struct(Value *rcv, int field, Value *val)
 	ConstantInt::get(Int32Ty, field),
 	val
     };
-    CallInst::Create(setStructFunc, args, args + 3, "", bb);
+    CallInst::Create(setStructFunc, args, "", bb);
 }
 
 Function *
@@ -295,7 +295,7 @@ RoxorCompiler::compile_bs_struct_writer(rb_vm_bs_boxed_t *bs_boxed, int field)
 
     assert((unsigned)field < bs_boxed->as.s->fields_count);
     const char *ftype = bs_boxed->as.s->fields[field].type;
-    const Type *llvm_type = convert_type(ftype);
+    Type *llvm_type = convert_type(ftype);
 
     Value *fval = new AllocaInst(llvm_type, "", bb);
     val = compile_conversion_to_c(ftype, val, fval);
@@ -337,7 +337,7 @@ RoxorCompiler::compile_bs_struct_new(rb_vm_bs_boxed_t *bs_boxed)
 
     for (unsigned i = 0; i < bs_boxed->as.s->fields_count; i++) {
 	const char *ftype = bs_boxed->as.s->fields[i].type;
-	const Type *llvm_type = convert_type(ftype);
+	Type *llvm_type = convert_type(ftype);
 	Value *fval = new AllocaInst(llvm_type, "", bb);
 
 	const size_t type_size = GET_CORE()->get_sizeof(llvm_type);
@@ -349,11 +349,11 @@ RoxorCompiler::compile_bs_struct_new(rb_vm_bs_boxed_t *bs_boxed)
 	    ConstantInt::get(Int32Ty, 0),		// align
 	    ConstantInt::get(Int1Ty, 0)			// volatile
 	};
-	const Type *Tys[] = { args[0]->getType(), args[2]->getType() };
+	Type *Tys[] = { args[0]->getType(), args[2]->getType() };
 	Function *memset_func = Intrinsic::getDeclaration(module,
-		Intrinsic::memset, Tys, 2);
+		Intrinsic::memset, Tys);
 	assert(memset_func != NULL);
-	CallInst::Create(memset_func, args, args + 5, "", bb);
+	CallInst::Create(memset_func, args, "", bb);
 
 	fval = new LoadInst(fval, "", bb);
 	fval = compile_conversion_to_ruby(ftype, llvm_type, fval);
@@ -373,7 +373,7 @@ RoxorCompiler::compile_bs_struct_new(rb_vm_bs_boxed_t *bs_boxed)
 
     for (unsigned i = 0; i < bs_boxed->as.s->fields_count; i++) {
 	const char *ftype = bs_boxed->as.s->fields[i].type;
-	const Type *llvm_type = convert_type(ftype);
+	Type *llvm_type = convert_type(ftype);
 	Value *fval = new AllocaInst(llvm_type, "", bb);
 
 	Value *index = ConstantInt::get(Int32Ty, i);
@@ -1459,7 +1459,7 @@ RoxorCompiler::compile_ffi_function(void *stub, void *imp, int argc)
     //     VALUE *argv = alloca(...);
     //     return stub(imp, argc, argv);
     // }
-    std::vector<const Type *> f_types;
+    std::vector<Type *> f_types;
     f_types.push_back(RubyObjTy);
     f_types.push_back(PtrTy);
     for (int i = 0; i < argc; i++) {
@@ -1475,7 +1475,7 @@ RoxorCompiler::compile_ffi_function(void *stub, void *imp, int argc)
     ++arg; // skip sel
 
     std::vector<Value *> params;
-    std::vector<const Type *> stub_types;
+    std::vector<Type *> stub_types;
 
     // First argument is the function implementation.
     params.push_back(compile_const_pointer(imp));
@@ -1509,8 +1509,7 @@ RoxorCompiler::compile_ffi_function(void *stub, void *imp, int argc)
 	    PointerType::getUnqual(stub_ft), "", bb);
 
     // Call the stub and return its return value.
-    CallInst *stub_call = CallInst::Create(stub_val, params.begin(),
-	    params.end(), "", bb);
+    CallInst *stub_call = CallInst::Create(stub_val, params, "", bb);
     ReturnInst::Create(context, stub_call, bb);
 
     return f;

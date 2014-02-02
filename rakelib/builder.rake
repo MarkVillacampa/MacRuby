@@ -111,11 +111,11 @@ def build_objects
     sh "echo '' > #{kernel_data_c}"
     cflags = $builder.cflags.scan(/-I[^\s]+/).join(' ')
     cflags << ' ' << $builder.cflags.scan(/-D[^\s]+/).join(' ')
-    $builder.archs.each do |x| 
+    $builder.archs.each do |x|
       output = File.join($builder.objsdir, "kernel-#{x}.bc")
       # Compile the IR for the kernel.c source file & optimize it.
-      sh "#{llvm_gcc} -arch #{x} -fexceptions -fno-stack-protector -fwrapv #{cflags} --emit-llvm -c kernel.c -o #{output}"
-      sh "#{opt} -O3 #{output} -o=#{output}"
+      sh "#{CC} -arch #{x} -fexceptions -fno-stack-protector -fwrapv #{cflags} -emit-llvm -c kernel.c -o #{output}"
+      sh "#{opt} -O3  #{output} -o=#{output}"
       # Convert the bitcode into a C static array. We append a null byte to the
       # bitcode file because xxd doesn't, and it's needed by the bitcode
       # reader later at runtime.

@@ -159,7 +159,7 @@ class BuilderConfig
     @cxxflags = "-I. -I./include -fblocks -g -Wall -Wno-deprecated-declarations -Werror #{archflags} #{EXTRA_CFLAGS}"
     @ldflags = '-lpthread -ldl -lxml2 -lobjc -licucore -framework Foundation'
     @ldflags << " -lauto" if has_libauto
-    @cxxflags << ' ' << `#{LLVM_CONFIG} --cxxflags #{LLVM_MODULES}`.sub(/-DNDEBUG/, '').sub(/-fno-exceptions/, '').sub(/-Wcast-qual/, '').sub!(/-O\d/, "-O#{OPTZ_LEVEL}").strip.gsub(/\n/, '')
+    @cxxflags << ' ' << `#{LLVM_CONFIG} --cxxflags`.sub(/-DNDEBUG/, '').sub(/-fno-exceptions/, '').sub(/-Wcast-qual/, '').sub!(/-O\d/, "-O#{OPTZ_LEVEL}").strip.gsub(/\n/, '')
     @cxxflags << ' -DLLVM_TOT' if ENV['LLVM_TOT']
     @ldflags << ' ' << `#{LLVM_CONFIG} --ldflags --libs #{LLVM_MODULES}`.strip.gsub(/\n/, '')
     unless has_libauto

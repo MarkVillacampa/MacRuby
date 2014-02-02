@@ -16,27 +16,27 @@
 # include <map>
 # include <string>
 #else
-# include <llvm/Module.h>
-# include <llvm/DerivedTypes.h>
-# include <llvm/Constants.h>
-# include <llvm/CallingConv.h>
-# include <llvm/Instructions.h>
+# include <llvm/IR/Module.h>
+# include <llvm/IR/DerivedTypes.h>
+# include <llvm/IR/Constants.h>
+# include <llvm/IR/CallingConv.h>
+# include <llvm/IR/Instructions.h>
 # include <llvm/PassManager.h>
-# include <llvm/Analysis/DebugInfo.h>
+# include <llvm/DebugInfo.h>
 # if !defined(LLVM_TOT)
-#  include <llvm/Analysis/DIBuilder.h>
+#  include <llvm/DIBuilder.h>
 # endif
 # include <llvm/Analysis/Verifier.h>
-# include <llvm/Target/TargetData.h>
+# include <llvm/IR/DataLayout.h>
 # include <llvm/CodeGen/MachineFunction.h>
 # include <llvm/ExecutionEngine/JIT.h>
 # include <llvm/ExecutionEngine/JITMemoryManager.h>
 # include <llvm/ExecutionEngine/JITEventListener.h>
 # include <llvm/ExecutionEngine/GenericValue.h>
-# include <llvm/Target/TargetData.h>
+# include <llvm/IR/DataLayout.h>
 # include <llvm/Target/TargetMachine.h>
 # include <llvm/Target/TargetOptions.h>
-# include <llvm/Target/TargetSelect.h>
+# include <llvm/Support/TargetSelect.h>
 # include <llvm/Transforms/Scalar.h>
 # include <llvm/Transforms/IPO.h>
 # include <llvm/Support/raw_ostream.h>
@@ -45,10 +45,10 @@
 # endif
 # include <llvm/Support/PrettyStackTrace.h>
 # include <llvm/Support/MemoryBuffer.h>
-# include <llvm/Support/StandardPasses.h>
-# include <llvm/Intrinsics.h>
+# include <llvm/Transforms/IPO/PassManagerBuilder.h>
+# include <llvm/IR/Intrinsics.h>
 # include <llvm/Bitcode/ReaderWriter.h>
-# include <llvm/LLVMContext.h>
+# include <llvm/IR/LLVMContext.h>
 # include "llvm/ADT/Statistic.h"
 using namespace llvm;
 #endif // MACRUBY_STATIC
@@ -113,7 +113,7 @@ class RoxorCoreLock {
 
 #if !defined(MACRUBY_STATIC)
 class RoxorFunction {
-    public: 
+    public:
 	// Information retrieved from JITManager.
 	Function *f;
 	unsigned char *start;
@@ -156,8 +156,8 @@ class RoxorJITManager : public JITMemoryManager, public JITEventListener {
 	}
 
     public:
-	RoxorJITManager() : JITMemoryManager() { 
-	    mm = CreateDefaultMemManager(); 
+	RoxorJITManager() : JITMemoryManager() {
+	    mm = CreateDefaultMemManager();
 	}
 
 	RoxorFunction *find_function(uint8_t *addr) {
@@ -170,7 +170,7 @@ class RoxorJITManager : public JITMemoryManager, public JITEventListener {
 	     if (addr < front->start || addr > back->end) {
 		return NULL;
 	     }
-	     std::vector<RoxorFunction *>::iterator iter = 
+	     std::vector<RoxorFunction *>::iterator iter =
 		 functions.begin();
 	     while (iter != functions.end()) {
 		RoxorFunction *f = *iter;
@@ -183,7 +183,7 @@ class RoxorJITManager : public JITMemoryManager, public JITEventListener {
 	}
 
 	RoxorFunction *delete_function(Function *func) {
-	    std::vector<RoxorFunction *>::iterator iter = 
+	    std::vector<RoxorFunction *>::iterator iter =
 		functions.begin();
 	    while (iter != functions.end()) {
 		RoxorFunction *f = *iter;
@@ -198,16 +198,16 @@ class RoxorJITManager : public JITMemoryManager, public JITEventListener {
 
 	// JITMemoryManager callbacks.
 
-	void setMemoryWritable(void) { 
-	    mm->setMemoryWritable(); 
+	void setMemoryWritable(void) {
+	    mm->setMemoryWritable();
 	}
 
-	void setMemoryExecutable(void) { 
-	    mm->setMemoryExecutable(); 
+	void setMemoryExecutable(void) {
+	    mm->setMemoryExecutable();
 	}
 
-	uint8_t *allocateSpace(intptr_t Size, unsigned Alignment) { 
-	    return mm->allocateSpace(Size, Alignment); 
+	uint8_t *allocateSpace(intptr_t Size, unsigned Alignment) {
+	    return mm->allocateSpace(Size, Alignment);
 	}
 
 	uint8_t *allocateGlobal(uintptr_t Size, unsigned Alignment) {
@@ -222,18 +222,18 @@ class RoxorJITManager : public JITMemoryManager, public JITEventListener {
 	    return mm->getGOTBase();
 	}
 
-	uint8_t *startFunctionBody(const Function *F, 
+	uint8_t *startFunctionBody(const Function *F,
 		uintptr_t &ActualSize) {
 	    return mm->startFunctionBody(F, ActualSize);
 	}
 
-	uint8_t *allocateStub(const GlobalValue* F, 
-		unsigned StubSize, 
+	uint8_t *allocateStub(const GlobalValue* F,
+		unsigned StubSize,
 		unsigned Alignment) {
 	    return mm->allocateStub(F, StubSize, Alignment);
 	}
 
-	void endFunctionBody(const Function *F, uint8_t *FunctionStart, 
+	void endFunctionBody(const Function *F, uint8_t *FunctionStart,
 		uint8_t *FunctionEnd) {
 	    mm->endFunctionBody(F, FunctionStart, FunctionEnd);
 	    Function *f = const_cast<Function *>(F);
@@ -249,12 +249,12 @@ class RoxorJITManager : public JITMemoryManager, public JITEventListener {
 	    mm->deallocateExceptionTable(data);
 	}
 
-	uint8_t* startExceptionTable(const Function* F, 
+	uint8_t* startExceptionTable(const Function* F,
 		uintptr_t &ActualSize) {
 	    return mm->startExceptionTable(F, ActualSize);
 	}
 
-	void endExceptionTable(const Function *F, uint8_t *TableStart, 
+	void endExceptionTable(const Function *F, uint8_t *TableStart,
 		uint8_t *TableEnd, uint8_t* FrameRegister) {
 	    current_function()->ehs.push_back(FrameRegister);
 	    mm->endExceptionTable(F, TableStart, TableEnd, FrameRegister);
@@ -285,6 +285,25 @@ class RoxorJITManager : public JITMemoryManager, public JITEventListener {
 
 	    function->path = path;
 	}
+
+  uint8_t *allocateCodeSection(uintptr_t Size, unsigned Alignment,
+    unsigned SectionID) {
+    return mm->allocateCodeSection(Size, Alignment, SectionID);
+  }
+
+  uint8_t *allocateDataSection(uintptr_t Size, unsigned Alignment,
+    unsigned SectionID, bool IsReadOnly) {
+    return mm->allocateDataSection(Size, Alignment, SectionID, IsReadOnly);
+  }
+
+  void *getPointerToNamedFunction(const std::string &Name,
+    bool AbortOnFailure = true) {
+    return mm->getPointerToNamedFunction(Name, AbortOnFailure);
+  }
+
+  bool applyPermissions(std::string *ErrMsg = 0) {
+    return mm->applyPermissions(ErrMsg);
+  }
 };
 #endif
 
@@ -319,7 +338,7 @@ RoxorCore::RoxorCore(void)
 
     // The JIT is created later, if necessary.
     InitializeNativeTarget();
-    jmm = NULL; 
+    jmm = NULL;
     ee = NULL;
     fpm = NULL;
 
@@ -358,9 +377,26 @@ RoxorCore::prepare_jit(void)
 	}
     }
 
+
     std::string err;
-    ee = ExecutionEngine::createJIT(RoxorCompiler::module, &err, jmm,
-	    opt_level, false);
+
+    EngineBuilder builder(RoxorCompiler::module);
+
+    builder.setEngineKind(EngineKind::JIT);
+    builder.setErrorStr(&err);
+    builder.setJITMemoryManager(jmm);
+    builder.setOptLevel(opt_level);
+    builder.setAllocateGVsWithCode(false);
+
+    TargetOptions target_options;
+    target_options.JITExceptionHandling = true;
+    target_options.JITEmitDebugInfo = true;
+    target_options.NoFramePointerElim = true;
+
+    builder.setTargetOptions(target_options);
+
+    ee = builder.create();
+
     if (ee == NULL) {
 	fprintf(stderr, "error while creating JIT: %s\n", err.c_str());
 	abort();
@@ -369,7 +405,7 @@ RoxorCore::prepare_jit(void)
     ee->RegisterJITEventListener(jmm);
 
     fpm = new FunctionPassManager(RoxorCompiler::module);
-    fpm->add(new TargetData(*ee->getTargetData()));
+    fpm->add(new DataLayout(*ee->getDataLayout()));
 
     // Do simple "peephole" optimizations and bit-twiddling optzns.
     fpm->add(createInstructionCombiningPass());
@@ -554,11 +590,11 @@ RoxorCore::optimize(Function *func)
 	default:
 	    if (ruby_aot_compile || should_optimize(func)) {
 optimize:
-		if (fpm != NULL) {	
+		if (fpm != NULL) {
 		    fpm->run(*func);
 		}
 	    }
-	    break;    
+	    break;
     }
 }
 
@@ -732,7 +768,7 @@ RoxorCore::symbolize_call_address(void *addr, char *path, size_t path_len,
 	    strlcpy(path, f->path.c_str(), path_len);
 	}
 	if (name != NULL) {
-	    std::map<IMP, rb_vm_method_node_t *>::iterator iter = 
+	    std::map<IMP, rb_vm_method_node_t *>::iterator iter =
 		ruby_imps.find((IMP)f->imp);
 	    if (iter == ruby_imps.end()) {
 		strlcpy(name, "block", name_len);
@@ -854,9 +890,9 @@ rb_vm_is_ruby_method(Method m)
 
 #if !defined(MACRUBY_STATIC)
 size_t
-RoxorCore::get_sizeof(const Type *type)
+RoxorCore::get_sizeof(Type *type)
 {
-    return ee->getTargetData()->getTypeSizeInBits(type) / 8;
+    return ee->getDataLayout()->getTypeSizeInBits(type) / 8;
 }
 
 size_t
@@ -872,10 +908,10 @@ RoxorCore::get_sizeof(const char *type)
 #endif /* !__LP64__ */
 
 bool
-RoxorCore::is_large_struct_type(const Type *type)
+RoxorCore::is_large_struct_type(Type *type)
 {
     return type->getTypeID() == Type::StructTyID
-	&& ee->getTargetData()->getTypeSizeInBits(type) > LARGE_STRUCT_SIZE;
+	&& ee->getDataLayout()->getTypeSizeInBits(type) > LARGE_STRUCT_SIZE;
 }
 
 GlobalVariable *
@@ -920,8 +956,8 @@ RoxorCore::should_invalidate_inline_op(SEL sel, Class klass)
 	    || klass == (Class)rb_cNSHash
 	    || klass == (Class)rb_cNSMutableHash;
     }
-    if (sel == selPLUS || sel == selMINUS || sel == selDIV 
-	|| sel == selMULT || sel == selLT || sel == selLE 
+    if (sel == selPLUS || sel == selMINUS || sel == selDIV
+	|| sel == selMULT || sel == selLT || sel == selLE
 	|| sel == selGT || sel == selGE) {
 	return klass == (Class)rb_cFixnum
 	    || klass == (Class)rb_cFloat
@@ -1071,15 +1107,15 @@ RoxorCore::add_method(Class klass, SEL sel, IMP imp, IMP ruby_imp,
 
     // If alloc is redefined, mark the class as such.
     if (sel == selAlloc
-	&& (RCLASS_VERSION(klass) & RCLASS_HAS_ROBJECT_ALLOC) 
+	&& (RCLASS_VERSION(klass) & RCLASS_HAS_ROBJECT_ALLOC)
 	== RCLASS_HAS_ROBJECT_ALLOC) {
-	RCLASS_SET_VERSION(klass, (RCLASS_VERSION(klass) ^ 
+	RCLASS_SET_VERSION(klass, (RCLASS_VERSION(klass) ^
 		    RCLASS_HAS_ROBJECT_ALLOC));
     }
 
     // Forward method definition to the included classes.
     if (RCLASS_VERSION(klass) & RCLASS_IS_INCLUDED) {
-	VALUE included_in_classes = rb_attr_get((VALUE)klass, 
+	VALUE included_in_classes = rb_attr_get((VALUE)klass,
 		idIncludedInClasses);
 	if (included_in_classes != Qnil) {
 	    for (int i = 0, count = RARRAY_LEN(included_in_classes);
@@ -1134,7 +1170,7 @@ extern "C"
 void
 rb_vm_set_running(bool flag)
 {
-    GET_CORE()->set_running(flag); 
+    GET_CORE()->set_running(flag);
 }
 
 extern "C"
@@ -1279,7 +1315,7 @@ rb_vm_print_outer_stack(const char *fname, NODE *node, const char *function, int
 	printf("%s ", prefix);
     }
     printf("outer_stack(");
-    
+
     bool first = true;
     for (rb_vm_outer_t *o = outer_stack; o != NULL; o = o->outer) {
 	if (first) {
@@ -1480,14 +1516,14 @@ rb_vm_define_class(ID path, VALUE outer, VALUE super, int flags,
 
 #if ROXOR_VM_DEBUG
     if (flags & DEFINE_MODULE) {
-	printf("define module %s::%s\n", 
-		class_getName((Class)outer), 
+	printf("define module %s::%s\n",
+		class_getName((Class)outer),
 		rb_id2name(path));
     }
     else {
-	printf("define class %s::%s < %s\n", 
-		class_getName((Class)outer), 
-		rb_id2name(path), 
+	printf("define class %s::%s < %s\n",
+		class_getName((Class)outer),
+		rb_id2name(path),
 		class_getName((Class)super));
     }
 #endif
@@ -1794,7 +1830,7 @@ get_bs_method_type(bs_element_method_t *bs_method, int idx)
     return type;
 }
 
-static void 
+static void
 resolve_method_type(char *buf, const size_t buflen, Class klass, Method m,
 	SEL sel, const unsigned int types_count)
 {
@@ -1912,7 +1948,7 @@ RoxorCore::retype_method(Class klass, rb_vm_method_node_t *node,
 
     RoxorCoreLock lock;
 
-    // Re-generate ObjC stub. 
+    // Re-generate ObjC stub.
     Function *objc_func = RoxorCompiler::shared->compile_objc_stub(NULL,
 	    node->ruby_imp, node->arity, new_types);
     node->objc_imp = compile(objc_func, false);
@@ -2041,7 +2077,7 @@ RoxorCore::resolve_methods(std::map<Class, rb_vm_method_source_t *> *map,
 	    iter = method_sources.find(sel);
 	assert(iter != method_sources.end());
 	method_sources.erase(iter);
-	delete map;	
+	delete map;
     }
 
     return did_something;
@@ -2267,7 +2303,7 @@ prepare_method:
     }
 
     if (RCLASS_VERSION(klass) & RCLASS_IS_INCLUDED) {
-	VALUE included_in_classes = rb_attr_get((VALUE)klass, 
+	VALUE included_in_classes = rb_attr_get((VALUE)klass,
 		idIncludedInClasses);
 	if (included_in_classes != Qnil) {
 	    int i, count = RARRAY_LEN(included_in_classes);
@@ -2334,7 +2370,7 @@ static void
 push_method(VALUE ary, SEL sel, int flags, int (*filter) (VALUE, ID, VALUE))
 {
     if (rb_objc_ignored_sel(sel)) {
-	return; 
+	return;
     }
 
     const char *selname = sel_getName(sel);
@@ -2351,7 +2387,7 @@ push_method(VALUE ary, SEL sel, int flags, int (*filter) (VALUE, ID, VALUE))
 	buf[len - 1] = '\0';
 	selname = buf;
     }
- 
+
     ID mid = rb_intern(selname);
     VALUE sym = ID2SYM(mid);
 
@@ -2370,7 +2406,7 @@ push_method(VALUE ary, SEL sel, int flags, int (*filter) (VALUE, ID, VALUE))
 	}
 	(*filter)(sym, type, ary);
     }
-} 
+}
 
 #if !defined(MACRUBY_STATIC)
 rb_vm_method_source_t *
@@ -2398,7 +2434,7 @@ RoxorCore::get_methods(VALUE ary, Class klass, bool include_objc_methods,
     // TODO take into account undefined methods
 
     unsigned int count;
-    Method *methods = class_copyMethodList(klass, &count); 
+    Method *methods = class_copyMethodList(klass, &count);
     if (methods != NULL) {
 	for (unsigned int i = 0; i < count; i++) {
 	    Method m = methods[i];
@@ -2733,7 +2769,7 @@ define_method:
 }
 
 extern "C"
-rb_vm_method_node_t * 
+rb_vm_method_node_t *
 rb_vm_define_method(Class klass, SEL sel, IMP imp, NODE *node, bool direct)
 {
     assert(node != NULL);
@@ -2744,7 +2780,7 @@ rb_vm_define_method(Class klass, SEL sel, IMP imp, NODE *node, bool direct)
 }
 
 extern "C"
-rb_vm_method_node_t * 
+rb_vm_method_node_t *
 rb_vm_define_method2(Class klass, SEL sel, rb_vm_method_node_t *node,
 	long flags, bool direct)
 {
@@ -2790,7 +2826,7 @@ rb_vm_generate_mri_stub(void *imp, const int arity)
 	// Not needed!
 	return imp;
     }
-    return (void *)GET_CORE()->compile(func, false); 
+    return (void *)GET_CORE()->compile(func, false);
 }
 #endif
 
@@ -2864,7 +2900,7 @@ rb_vm_undef_method(Class klass, ID name, bool check)
 		    name_str);
 	}
     }
-    else { 
+    else {
 	GET_CORE()->undef_method(klass, sel0);
 	if (sel0 != sel1) {
 	    GET_CORE()->undef_method(klass, sel1);
@@ -3065,8 +3101,8 @@ RoxorCore::gen_to_rval_convertor(std::string type)
 	    type.c_str());
     void *convertor = (void *)compile(f);
     to_rval_convertors.insert(std::make_pair(type, convertor));
-    
-    return convertor; 
+
+    return convertor;
 #endif
 }
 
@@ -3089,8 +3125,8 @@ RoxorCore::gen_to_ocval_convertor(std::string type)
 	    type.c_str());
     void *convertor = (void *)compile(f);
     to_ocval_convertors.insert(std::make_pair(type, convertor));
-    
-    return convertor; 
+
+    return convertor;
 #endif
 }
 
@@ -3172,7 +3208,7 @@ RoxorVM::push_outer(Class klass)
     rb_vm_print_outer_stack(NULL, NULL, __FUNCTION__, __LINE__,
 			    outer_stack, "push_outer");
 #endif
-    
+
     return o;
 }
 
@@ -3218,7 +3254,7 @@ rb_vm_set_current_outer(rb_vm_outer_t *outer)
     vm->set_current_outer(outer);
     return old;
 }
-    
+
 struct rb_vm_kept_local {
     ID name;
     VALUE *stack_address;
@@ -3308,7 +3344,7 @@ push_local(rb_vm_local_t **l, ID name, VALUE *value)
 extern "C"
 rb_vm_binding_t *
 rb_vm_create_binding(VALUE self, rb_vm_block_t *current_block,
-	rb_vm_binding_t *top_binding, rb_vm_outer_t *outer_stack, 
+	rb_vm_binding_t *top_binding, rb_vm_outer_t *outer_stack,
 	int lvars_size, va_list lvars, bool vm_push)
 {
     rb_vm_binding_t *binding =
@@ -3607,7 +3643,7 @@ __vm_raise(void)
 	GET_CORE()->symbolize_backtrace_entry(2, file, sizeof file, &line,
 		NULL, 0);
 	MACRUBY_RAISE(classname, file, line);
-    } 
+    }
 #if __LP64__
     // In 64-bit, an Objective-C exception is a C++ exception.
     id exc = rb_rb2oc_exception(rb_exc);
@@ -3702,7 +3738,7 @@ rb_vm_raise_current_exception(void)
 #endif
     assert(exception != Qnil);
     prepare_exception_bt(exception);
-    __vm_raise(); 
+    __vm_raise();
 }
 
 extern "C"
@@ -4039,7 +4075,7 @@ rb_vm_set_current_exception(VALUE exception)
 }
 
 extern "C"
-void 
+void
 rb_vm_debug(void)
 {
     printf("rb_vm_debug\n");
@@ -4310,7 +4346,7 @@ rb_vm_run_under(VALUE klass, VALUE self, const char *fname, NODE *node,
 	    should_pop_outer = _should_pop_outer;
 	    outer_stack_uses = _outer_stack_uses;
 	}
-	~Finally() { 
+	~Finally() {
 	    RoxorCompiler::shared->set_dynamic_class(old_dynamic_class);
 	    vm->set_current_top_object(old_top_object);
 	    if (should_pop_outer) {
@@ -4416,8 +4452,14 @@ rb_vm_aot_compile(NODE *node)
 
     // Run standard optimization passes on the module.
     PassManager pm;
-    createStandardModulePasses(&pm, 3, false, true, true, true, true,
-	    createFunctionInliningPass());
+    PassManagerBuilder pm_builder;
+    pm_builder.OptLevel = 3;
+    pm_builder.SizeLevel = 0;
+    pm_builder.DisableUnitAtATime = false;
+    pm_builder.DisableUnrollLoops = false;
+    pm_builder.DisableSimplifyLibCalls = false;
+    pm_builder.Inliner = createFunctionInliningPass();
+    pm_builder.populateModulePassManager(pm);
     pm.run(*RoxorCompiler::module);
 
     // Dump the bitcode.
@@ -4470,7 +4512,7 @@ rb_vm_thread_safe_level(rb_vm_thread_t *thread)
 }
 
 extern "C"
-void 
+void
 rb_vm_set_safe_level(int level)
 {
     GET_VM()->set_safe_level(level);
@@ -4607,7 +4649,7 @@ rb_backref_special_get(int code)
     }
     // This can't happen.
     printf("invalid backref special code: %d (%c)\n", code, code);
-    abort(); 
+    abort();
 }
 
 extern "C"
@@ -4686,7 +4728,7 @@ RoxorVM::ruby_catch(VALUE tag)
 	    throw;
 	}
     }
-    decrease_nesting_for_tag(tag); 
+    decrease_nesting_for_tag(tag);
 
     return retval;
 }
@@ -4890,7 +4932,7 @@ struct mcache *
 rb_vm_get_mcache(void *vm)
 {
     return ((RoxorVM *)vm)->get_mcache();
-} 
+}
 
 void
 RoxorCore::register_thread(VALUE thread)
@@ -4959,7 +5001,7 @@ RoxorCore::unregister_thread(VALUE thread)
     }
     pthread_assert(pthread_cond_destroy(&t->sleep_cond));
 
-    rb_thread_unlock_all_mutexes(t); 
+    rb_thread_unlock_all_mutexes(t);
 
     RoxorVM *vm = (RoxorVM *)t->vm;
     delete vm;
@@ -5033,7 +5075,7 @@ rb_vm_thread_run(VALUE thread)
 
     pthread_cleanup_pop(0);
 
-    rb_thread_remove_from_group(thread); 
+    rb_thread_remove_from_group(thread);
     GET_CORE()->unregister_thread(thread);
     rb_objc_gc_unregister_thread();
 
@@ -5111,7 +5153,7 @@ rb_vm_thread_pre_init(rb_vm_thread_t *t, rb_vm_block_t *body, int argc,
     else {
 	t->body = NULL;
     }
-   
+
     if (argc > 0) {
 	t->argc = argc;
 	GC_WB(&t->argv, xmalloc_ptrs(sizeof(VALUE) * argc));
@@ -5137,7 +5179,7 @@ rb_vm_thread_pre_init(rb_vm_thread_t *t, rb_vm_block_t *body, int argc,
     t->mutexes = Qnil;
 
     pthread_assert(pthread_mutex_init(&t->sleep_mutex, NULL));
-    pthread_assert(pthread_cond_init(&t->sleep_cond, NULL)); 
+    pthread_assert(pthread_cond_init(&t->sleep_cond, NULL));
 }
 
 static inline void
@@ -5389,18 +5431,19 @@ class_has_custom_resolver(Class klass)
 static bool vm_enable_stats = false;
 
 extern "C"
-void 
+void
 Init_PreVM(void)
 {
 #if !defined(MACRUBY_STATIC)
-    // To emit DWARF exception tables. 
-    llvm::JITExceptionHandling = true;
-    // To emit DWARF debug metadata. 
-    llvm::JITEmitDebugInfo = true; 
+    // // To emit DWARF exception tables.
+    // llvm::JITExceptionHandling = true;
+    // // To emit DWARF debug metadata.
+    // llvm::JITEmitDebugInfo = true;
+    // // To not corrupt stack pointer (essential for backtracing).
+    // llvm::NoFramePointerElim = true;
+
     // To not interfere with our signal handling mechanism.
     llvm::DisablePrettyStackTrace = true;
-    // To not corrupt stack pointer (essential for backtracing).
-    llvm::NoFramePointerElim = true;
 
     if (getenv("VM_STATS") != NULL) {
 	vm_enable_stats = true;
@@ -5512,7 +5555,7 @@ resources_path(char *path, size_t len)
     assert(bundle != NULL);
 
     url = CFBundleCopyResourcesDirectoryURL(bundle);
-    *path = '-'; 
+    *path = '-';
     *(path+1) = 'I';
     assert(CFURLGetFileSystemRepresentation(url, true, (UInt8 *)&path[2],
 		len - 2));
@@ -5534,24 +5577,24 @@ macruby_main(const char *path, int argc, char **argv)
     char **newargv = (char **)malloc(sizeof(char *) * (argc + 2));
     assert(newargv != NULL);
     newargv[0] = argv[0];
-    
+
     char *p1 = (char *)malloc(PATH_MAX);
     assert(p1 != NULL);
     newargv[1] = (char *)resources_path(p1, PATH_MAX);
-    
+
     char *p2 = (char *)malloc(PATH_MAX);
     assert(p2 != NULL);
     snprintf(p2, PATH_MAX, "%s/%s", (path[0] != '/') ? &p1[2] : "", path);
     newargv[2] = p2;
-   
-    int n = 3; 
+
+    int n = 3;
     for (int i = 1; i < argc; i++) {
 	if (strncmp(argv[i], "-psn_", 5) != 0) {
 	    newargv[n++] = argv[i];
 	}
     }
- 
-    argv = newargv;    
+
+    argv = newargv;
     argc = n;
 
     unsetenv("RUBYOPT");
@@ -5570,7 +5613,7 @@ macruby_main(const char *path, int argc, char **argv)
     }
     catch (...) {
 	rb_vm_print_current_exception();
-	exit(1);	
+	exit(1);
     }
 }
 #endif
@@ -5689,17 +5732,17 @@ rb_vm_aot_feature_load(const char *name)
 		old_outer_stack = vm->get_outer_stack();
 		old_current_outer = vm->get_current_outer();
 	    }
-	    ~Finally() { 
+	    ~Finally() {
 		vm->set_current_outer(old_current_outer);
 		vm->set_outer_stack(old_outer_stack);
 		vm->set_current_class(old_class);
 	    }
 	} finalizer(vm);
-	
+
 	vm->set_current_class(NULL);
 	vm->set_outer_stack(NULL);
 	vm->set_current_outer(NULL);
-	
+
         ((void *(*)(void *, void *))init_func)((void *)rb_vm_top_self(), NULL);
         iter->second = NULL;
     }
@@ -5734,7 +5777,7 @@ rb_vm_dln_load(void (*init_fct)(void), IMP __mrep__)
 	    old_outer_stack = vm->get_outer_stack();
 	    old_current_outer = vm->get_current_outer();
 	}
-	~Finally() { 
+	~Finally() {
 	    vm->set_current_outer(old_current_outer);
 	    vm->set_outer_stack(old_outer_stack);
 	    vm->set_current_class(old_class);
@@ -5780,7 +5823,7 @@ rb_vm_load(const char *fname_str, int wrap)
 	    old_outer_stack = vm->get_outer_stack();
 	    old_current_outer = vm->get_current_outer();
 	}
-	~Finally() { 
+	~Finally() {
 	    vm->set_current_outer(old_current_outer);
 	    vm->set_outer_stack(old_outer_stack);
 	    vm->set_current_class(old_class);
@@ -5823,7 +5866,7 @@ RoxorCore::dispose_class(Class k)
 
 	for (; iter != last; ++iter) {
 	    SEL sel = iter->second;
-			
+
 	    std::map<SEL, std::map<Class, rb_vm_method_source_t *> *>::iterator
 		iter2 = method_sources.find(sel);
 	    if (iter2 != method_sources.end()) {

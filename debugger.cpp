@@ -9,19 +9,19 @@
 
 #if !defined(MACRUBY_STATIC)
 
-#include <llvm/Module.h>
-#include <llvm/DerivedTypes.h>
-#include <llvm/Constants.h>
-#include <llvm/CallingConv.h>
-#include <llvm/Instructions.h>
-#include <llvm/Intrinsics.h>
-#include <llvm/Analysis/DebugInfo.h>
+#include <llvm/IR/Module.h>
+#include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/CallingConv.h>
+#include <llvm/IR/Instructions.h>
+#include <llvm/IR/Intrinsics.h>
+#include <llvm/DebugInfo.h>
 #if !defined(LLVM_TOT)
-# include <llvm/Analysis/DIBuilder.h>
+# include <llvm/DIBuilder.h>
 #endif
 #include <llvm/ExecutionEngine/JIT.h>
 #include <llvm/PassManager.h>
-#include <llvm/Target/TargetData.h>
+# include <llvm/IR/DataLayout.h>
 using namespace llvm;
 
 #include <sys/types.h>
@@ -44,7 +44,7 @@ RoxorCompiler::compile_debug_trap(void)
     if (debugTrapFunc == NULL) {
 	// void rb_vm_debug_trap(const char *file, int line,
 	//	VALUE self, rb_vm_block_t *current_block, int lvars_size, ...);
-	std::vector<const Type *> types;
+	std::vector<Type *> types;
 	types.push_back(PtrTy);
 	types.push_back(Int32Ty);
 	types.push_back(RubyObjTy);
@@ -72,7 +72,7 @@ RoxorCompiler::compile_debug_trap(void)
 	params.push_back(iter->second);
     }
 
-    CallInst::Create(debugTrapFunc, params.begin(), params.end(), "", bb);
+    CallInst::Create(debugTrapFunc, params, "", bb);
 }
 
 extern "C"
@@ -164,7 +164,7 @@ RoxorDebugger::send(std::string &data)
 	    fprintf(stderr, "expected to send %ld bytes instead of %ld\n",
 		    data.length(), len);
 	}
-	return false;	
+	return false;
     }
     return true;
 }
@@ -184,7 +184,7 @@ RoxorDebugger::recv(std::string &data)
     return true;
 }
 
-void 
+void
 RoxorDebugger::trap(const char *file, const int line, VALUE self,
 	rb_vm_block_t *block, int lvars_size, va_list lvars)
 {
@@ -300,7 +300,7 @@ RoxorDebugger::trap(const char *file, const int line, VALUE self,
 		}
 		continue;
 	    }
-	} 
+	}
 	if (strcmp(cmd, "info breakpoints") == 0) {
 	    std::string resp;
 	    for (std::map<std::string, RoxorBreakPoint *>::iterator iter
@@ -345,11 +345,11 @@ RoxorDebugger::trap(const char *file, const int line, VALUE self,
 		send(RSTRING_PTR(rb_inspect(obj)));
 		continue;
 	    }
-	} 
+	}
 
 	// Unknown command, let's exit the program. This should never happen!
 	fprintf(stderr, "unknown command: %s\n", cmd);
-	exit(1); 
+	exit(1);
     }
 }
 

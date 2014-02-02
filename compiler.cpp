@@ -11,11 +11,12 @@
 
 #define ROXOR_COMPILER_DEBUG 	0
 
+ #include <llvm/Support/Dwarf.h>
 #if !defined(DW_LANG_Ruby)
-# define DW_LANG_Ruby 0x15 // TODO: Python is 0x14, request a real number
+# define DW_LANG_Ruby llvm::dwarf::DW_LANG_lo_user + 2 // TODO: Python is 0x14, request a real number
 #endif
 
-#include <llvm/LLVMContext.h>
+#include <llvm/IR/LLVMContext.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 
 #include "llvm.h"
@@ -368,13 +369,15 @@ RoxorCompiler::compile_protected_call(Value *imp, Value **args_begin,
 	Value **args_end)
 {
     if (rescue_invoke_bb == NULL) {
-	return CallInst::Create(imp, args_begin, args_end, "", bb);
+    llvm::ArrayRef<Value *> params(args_begin, args_end);
+	return CallInst::Create(imp, params, "", bb);
     }
     else {
 	BasicBlock *normal_bb = BasicBlock::Create(context, "normal",
 		bb->getParent());
+    llvm::ArrayRef<llvm::Value *> params(args_begin, args_end);
 	InvokeInst *dispatch = InvokeInst::Create(imp, normal_bb,
-		rescue_invoke_bb, args_begin, args_end, "", bb);
+		rescue_invoke_bb, params, "", bb);
 	bb = normal_bb;
 	return dispatch;
     }
@@ -384,13 +387,13 @@ Instruction *
 RoxorCompiler::compile_protected_call(Value *imp, std::vector<Value *> &params)
 {
     if (rescue_invoke_bb == NULL) {
-	return CallInst::Create(imp, params.begin(), params.end(), "", bb);
+	return CallInst::Create(imp, params, "", bb);
     }
     else {
 	BasicBlock *normal_bb = BasicBlock::Create(context, "normal",
 		bb->getParent());
 	InvokeInst *dispatch = InvokeInst::Create(imp, normal_bb,
-		rescue_invoke_bb, params.begin(), params.end(), "", bb);
+		rescue_invoke_bb, params, "", bb);
 	bb = normal_bb;
 	return dispatch;
     }
@@ -583,7 +586,7 @@ RoxorCompiler::compile_const_global_ustring(const UniChar *str,
 
     GlobalVariable *gvar;
     if (iter == static_ustrings.end()) {
-	const ArrayType *str_type = ArrayType::get(Int16Ty, len);
+	ArrayType *str_type = ArrayType::get(Int16Ty, len);
 
 	std::vector<Constant *> ary_elements;
 	for (unsigned int i = 0; i < len; i++) {
@@ -604,7 +607,7 @@ RoxorCompiler::compile_const_global_ustring(const UniChar *str,
 	ConstantInt::get(Int32Ty, 0),
 	ConstantInt::get(Int32Ty, 0)
     };
-    return GetElementPtrInst::Create(gvar, idxs, idxs + 2, "", bb);
+    return GetElementPtrInst::Create(gvar, idxs, "", bb);
 }
 
 Instruction *
@@ -619,14 +622,14 @@ RoxorCompiler::compile_const_global_string(const char *str,
 
     GlobalVariable *gvar;
     if (iter == static_strings.end()) {
-	const ArrayType *str_type = ArrayType::get(Int8Ty, len + 1);
+	ArrayType *str_type = ArrayType::get(Int8Ty, len + 1);
 
 	std::vector<Constant *> ary_elements;
 	for (unsigned int i = 0; i < len; i++) {
 	    ary_elements.push_back(ConstantInt::get(Int8Ty, str[i]));
 	}
 	ary_elements.push_back(ConstantInt::get(Int8Ty, 0));
-	
+
 	gvar = new GlobalVariable(*RoxorCompiler::module, str_type, true,
 		GlobalValue::InternalLinkage,
 		ConstantArray::get(str_type, ary_elements), "");
@@ -641,7 +644,7 @@ RoxorCompiler::compile_const_global_string(const char *str,
 	ConstantInt::get(Int32Ty, 0),
 	ConstantInt::get(Int32Ty, 0)
     };
-    return GetElementPtrInst::Create(gvar, idxs, idxs + 2, "", bb);
+    return GetElementPtrInst::Create(gvar, idxs, "", bb);
 }
 
 Value *
@@ -683,7 +686,7 @@ discover_stubs(std::map<SEL, std::vector<std::string> *> &map,
 	    std::string s = *i;
 	    if (std::find(dest.begin(), dest.end(), s) == dest.end()) {
 		dest.push_back(s);
-	    }		
+	    }
 	}
     }
 }
@@ -776,7 +779,7 @@ RoxorCompiler::compile_prepare_method(Value *classVal, Value *sel,
     if (prepareMethodFunc == NULL) {
 	// void rb_vm_prepare_method(Class klass, unsigned char dynamic_class,
 	//	SEL sel, Function *func, rb_vm_arity_t arity, int flags)
-	prepareMethodFunc = 
+	prepareMethodFunc =
 	    cast<Function>(module->getOrInsertFunction(
 			"rb_vm_prepare_method",
 			VoidTy, RubyObjTy, Int8Ty, PtrTy, PtrTy, Int64Ty,
@@ -790,8 +793,8 @@ RoxorCompiler::compile_prepare_method(Value *classVal, Value *sel,
 	compile_const_pointer(new_function),
 	compile_arity(arity),
 	ConstantInt::get(Int32Ty, rb_vm_node_flags(body))
-    }; 
-    CallInst::Create(prepareMethodFunc, args, args + 6, "", bb);
+    };
+    CallInst::Create(prepareMethodFunc, args, "", bb);
 }
 
 void
@@ -801,7 +804,7 @@ RoxorAOTCompiler::compile_prepare_method(Value *classVal, Value *sel,
     if (prepareMethodFunc == NULL) {
 	// void rb_vm_prepare_method2(Class klass, unsigned char dynamic_class,
 	//	SEL sel, IMP ruby_imp, rb_vm_arity_t arity, int flags, ...)
-	std::vector<const Type *> types;
+	std::vector<Type *> types;
 	types.push_back(RubyObjTy);
 	types.push_back(Int8Ty);
 	types.push_back(PtrTy);
@@ -839,7 +842,7 @@ RoxorAOTCompiler::compile_prepare_method(Value *classVal, Value *sel,
     params.push_back(new BitCastInst(stub, PtrTy, "", bb));
     params.push_back(compile_const_pointer(NULL));
 
-    CallInst::Create(prepareMethodFunc, params.begin(), params.end(), "", bb);
+    CallInst::Create(prepareMethodFunc, params, "", bb);
 }
 
 void
@@ -851,9 +854,9 @@ RoxorCompiler::attach_current_line_metadata(Instruction *insn)
 	    ConstantInt::get(Int32Ty, current_line),
 	    ConstantInt::get(Int32Ty, 0),
 	    debug_compile_unit,
-	    DILocation(NULL) 
+	    DILocation(NULL)
 	};
-	DILocation loc = DILocation(MDNode::get(context, args, 4));
+	DILocation loc = DILocation(MDNode::get(context, args));
 #else
 	DILocation loc = debug_info->CreateLocation(current_line, 0,
 		debug_compile_unit, DILocation(NULL));
@@ -1063,7 +1066,7 @@ RoxorCompiler::compile_multiple_assignment(NODE *node, Value *val)
 	    ConstantInt::get(Int32Ty, i)
 	};
 	Value *elt = CallInst::Create(masgnGetElemBeforeSplatFunc,
-		args, args + 2, "", bb);
+		args, "", bb);
 
 	compile_multiple_assignment_element(l->nd_head, elt);
 
@@ -1076,7 +1079,7 @@ RoxorCompiler::compile_multiple_assignment(NODE *node, Value *val)
 	    ConstantInt::get(Int32Ty, before_splat_count),
 	    ConstantInt::get(Int32Ty, after_splat_count)
 	};
-	Value *elt = CallInst::Create(masgnGetSplatFunc, args, args + 3,
+	Value *elt = CallInst::Create(masgnGetSplatFunc, args,
 		"", bb);
 
 	compile_multiple_assignment_element(splat, elt);
@@ -1091,7 +1094,7 @@ RoxorCompiler::compile_multiple_assignment(NODE *node, Value *val)
 	    ConstantInt::get(Int32Ty, i)
 	};
 	Value *elt = CallInst::Create(masgnGetElemAfterSplatFunc,
-		args, args + 4, "", bb);
+		args, "", bb);
 
 	compile_multiple_assignment_element(l->nd_head, elt);
 
@@ -1147,7 +1150,7 @@ RoxorCompiler::compile_multiple_assignment(NODE *node)
 	    ConstantInt::get(Int32Ty, argc),
 	    argv
 	};
-	CallInst *ary = CallInst::Create(newArrayFunc, args, args + 2, "", bb);
+	CallInst *ary = CallInst::Create(newArrayFunc, args, "", bb);
 	RoxorCompiler::MAsgnValue val;
 	val.ary = ary;
 	masgn_values.push_back(val);
@@ -1159,7 +1162,7 @@ RoxorCompiler::compile_multiple_assignment(NODE *node)
 Value *
 RoxorCompiler::compile_prepare_block_args(Function *func, int *flags)
 {
-    return compile_const_pointer(func);    
+    return compile_const_pointer(func);
 }
 
 Value *
@@ -1187,7 +1190,7 @@ RoxorCompiler::compile_prepare_block(void)
 	//	rb_vm_var_uses **parent_var_uses,
 	//	rb_vm_block_t *parent_block,
 	//	int dvars_size, ...);
-	std::vector<const Type *> types;
+	std::vector<Type *> types;
 	types.push_back(PtrTy);
 	types.push_back(Int32Ty);
 	types.push_back(RubyObjTy);
@@ -1233,7 +1236,7 @@ RoxorCompiler::compile_prepare_block(void)
 	params.push_back(slot);
     }
 
-    return CallInst::Create(prepareBlockFunc, params.begin(), params.end(),
+    return CallInst::Create(prepareBlockFunc, params,
 	    "", bb);
 }
 
@@ -1260,7 +1263,7 @@ RoxorCompiler::compile_block(NODE *node)
     block_declaration = true;
 
     assert(node->nd_body != NULL);
-    Value *block = compile_node(node->nd_body);	
+    Value *block = compile_node(node->nd_body);
     assert(Function::classof(block));
 
     block_declaration = old_block_declaration;
@@ -1370,7 +1373,7 @@ RoxorCompiler::compile_binding(void)
 	// 	rb_vm_binding_t *top_binding, unsigned char dynamic_class,
 	//      rb_vm_outer_t *outer_stack, rb_vm_var_uses **parent_var_uses,
 	// 	int lvars_size, ...);
-	std::vector<const Type *> types;
+	std::vector<Type *> types;
 	types.push_back(RubyObjTy);
 	types.push_back(PtrTy);
 	types.push_back(PtrTy);
@@ -1408,7 +1411,7 @@ RoxorCompiler::compile_binding(void)
 	params.push_back(iter->second);
     }
 
-    return CallInst::Create(pushBindingFunc, params.begin(), params.end(),
+    return CallInst::Create(pushBindingFunc, params,
 	    "", bb);
 }
 
@@ -1453,7 +1456,7 @@ RoxorCompiler::compile_ivar_get(ID vid)
 	compile_id(vid),
 	compile_slot_cache(vid)
     };
-    return CallInst::Create(getIvarFunc, args, args + 3, "", bb);
+    return CallInst::Create(getIvarFunc, args, "", bb);
 }
 
 Value *
@@ -1465,7 +1468,7 @@ RoxorCompiler::compile_ivar_assignment(ID vid, Value *val)
 	val,
 	compile_slot_cache(vid)
     };
-    CallInst::Create(setIvarFunc, args, args + 4, "", bb);
+    CallInst::Create(setIvarFunc, args, "", bb);
 
     return val;
 }
@@ -1491,7 +1494,7 @@ RoxorCompiler::compile_cvar_assignment(ID name, Value *val)
 	val,
 	ConstantInt::get(Int8Ty, dynamic_class ? 1 : 0)
     };
-    return CallInst::Create(cvarSetFunc, args, args + 4, "", bb);
+    return CallInst::Create(cvarSetFunc, args, "", bb);
 }
 
 Value *
@@ -1559,7 +1562,7 @@ RoxorCompiler::compile_constant_declaration(NODE *node, Value *val)
 	args[4] = compile_const_pointer(NULL);
     }
 
-    CallInst::Create(setConstFunc, args, args + 5, "", bb);
+    CallInst::Create(setConstFunc, args, "", bb);
 
     return val;
 }
@@ -1734,7 +1737,7 @@ RoxorCompiler::compile_defined_expression(NODE *node)
     // Now the less easy ones... let's set up an exception handler first
     // because we might need to evalute things that will result in an
     // exception.
-    Function *f = bb->getParent(); 
+    Function *f = bb->getParent();
     BasicBlock *old_rescue_invoke_bb = rescue_invoke_bb;
     BasicBlock *new_rescue_invoke_bb = BasicBlock::Create(context, "rescue", f);
     BasicBlock *merge_bb = BasicBlock::Create(context, "merge", f);
@@ -1856,7 +1859,7 @@ RoxorCompiler::compile_defined_expression(NODE *node)
 
     // Now merging.
     bb = merge_bb;
-    PHINode *pn = PHINode::Create(RubyObjTy, "", bb);
+    PHINode *pn = PHINode::Create(RubyObjTy, 0, "", bb);
     pn->addIncoming(val, normal_bb);
     pn->addIncoming(nilVal, new_rescue_invoke_bb);
 
@@ -1887,14 +1890,14 @@ RoxorCompiler::compile_dstr(NODE *node)
 
     if (newStringFunc == NULL) {
 	// VALUE rb_str_new_fast(int argc, ...)
-	std::vector<const Type *> types;
+	std::vector<Type *> types;
 	types.push_back(Int32Ty);
 	FunctionType *ft = FunctionType::get(RubyObjTy, types, true);
 	newStringFunc = cast<Function>(module->getOrInsertFunction(
 		    "rb_str_new_fast", ft));
     }
 
-    return CallInst::Create(newStringFunc, params.begin(), params.end(), "",
+    return CallInst::Create(newStringFunc, params, "",
 	    bb);
 }
 
@@ -1933,7 +1936,7 @@ RoxorCompiler::compile_break_val(Value *val)
     if (breakFunc == NULL) {
 	// void rb_vm_break(VALUE val);
 	breakFunc = cast<Function>(
-		module->getOrInsertFunction("rb_vm_break", 
+		module->getOrInsertFunction("rb_vm_break",
 		    VoidTy, RubyObjTy, NULL));
     }
 
@@ -1973,7 +1976,7 @@ RoxorCompiler::compile_return_from_block(Value *val, int id)
 	// void rb_vm_return_from_block(VALUE val, int id,
 	//	rb_vm_block_t *current_block);
 	returnFromBlockFunc = cast<Function>(
-		module->getOrInsertFunction("rb_vm_return_from_block", 
+		module->getOrInsertFunction("rb_vm_return_from_block",
 		    VoidTy, RubyObjTy, Int32Ty, PtrTy, NULL));
     }
 
@@ -1994,7 +1997,7 @@ RoxorCompiler::compile_return_from_block_handler(int id)
 	// VALUE rb_vm_check_return_from_block_exc(void *exc, int id);
 	checkReturnFromBlockFunc = cast<Function>(
 		module->getOrInsertFunction(
-		    "rb_vm_check_return_from_block_exc", 
+		    "rb_vm_check_return_from_block_exc",
 		    RubyObjTy, PtrTy, Int32Ty, NULL));
     }
 
@@ -2002,7 +2005,7 @@ RoxorCompiler::compile_return_from_block_handler(int id)
 	exception,
 	ConstantInt::get(Int32Ty, id)
     };
-    Value *val = CallInst::Create(checkReturnFromBlockFunc, args, args + 2,
+    Value *val = CallInst::Create(checkReturnFromBlockFunc, args,
 	    "", bb);
 
     Function *f = bb->getParent();
@@ -2014,7 +2017,7 @@ RoxorCompiler::compile_return_from_block_handler(int id)
 
     bb = ret_bb;
     compile_landing_pad_footer(false);
-    ReturnInst::Create(context, val, bb);	
+    ReturnInst::Create(context, val, bb);
 
     bb = rethrow_bb;
     compile_rethrow_exception();
@@ -2170,39 +2173,32 @@ RoxorCompiler::compile_class_path(NODE *node, int *flags)
 Value *
 RoxorCompiler::compile_landing_pad_header(void)
 {
-    Function *eh_exception_f = Intrinsic::getDeclaration(module,
-	    Intrinsic::eh_exception);
-    Value *eh_ptr = CallInst::Create(eh_exception_f, "", bb);
 
-    Function *eh_selector_f = Intrinsic::getDeclaration(module,
-	    Intrinsic::eh_selector);
-
-    std::vector<Value *> params;
-    params.push_back(eh_ptr);
     Function *__gxx_personality_v0_func = NULL;
     if (__gxx_personality_v0_func == NULL) {
-	__gxx_personality_v0_func = cast<Function>(
-		module->getOrInsertFunction("__gxx_personality_v0",
-		    PtrTy, NULL));
+    __gxx_personality_v0_func = cast<Function>(
+        module->getOrInsertFunction("__gxx_personality_v0",
+            PtrTy, NULL));
     }
-    params.push_back(ConstantExpr::getBitCast(__gxx_personality_v0_func, PtrTy));
 
-    // catch (...)
-    params.push_back(compile_const_pointer(NULL));
+    LandingPadInst *landing_pad = LandingPadInst::Create(
+        StructType::get(PtrTy, Int32Ty, NULL),
+        ConstantExpr::getBitCast(__gxx_personality_v0_func, PtrTy), 0, "", bb);
 
-    CallInst::Create(eh_selector_f, params.begin(), params.end(), "", bb);
+    Value *exn_ptr = ExtractValueInst::Create(landing_pad, 0, "", bb);
 
+    std::vector<Value *> params;
     Function *beginCatchFunc = NULL;
     if (beginCatchFunc == NULL) {
-	// void *__cxa_begin_catch(void *);
-	beginCatchFunc = cast<Function>(
-		module->getOrInsertFunction("__cxa_begin_catch",
-		    PtrTy, PtrTy, NULL));
+    // void *__cxa_begin_catch(void *);
+    beginCatchFunc = cast<Function>(
+     module->getOrInsertFunction("__cxa_begin_catch",
+         PtrTy, PtrTy, NULL));
     }
     params.clear();
-    params.push_back(eh_ptr);
-    return CallInst::Create(beginCatchFunc, params.begin(), params.end(),
-	    "", bb);
+    params.push_back(exn_ptr);
+    return CallInst::Create(beginCatchFunc, params,
+        "", bb);
 }
 
 void
@@ -2211,7 +2207,7 @@ RoxorCompiler::compile_pop_exception(int pos)
     if (popExceptionFunc == NULL) {
 	// void rb_vm_pop_exception(int pos);
 	popExceptionFunc = cast<Function>(
-		module->getOrInsertFunction("rb_vm_pop_exception", 
+		module->getOrInsertFunction("rb_vm_pop_exception",
 		    VoidTy, Int32Ty, NULL));
     }
 
@@ -2260,7 +2256,7 @@ RoxorCompiler::compile_current_exception(void)
 	// VALUE rb_vm_current_exception(void);
 	currentExceptionFunc = cast<Function>(
 		module->getOrInsertFunction(
-		    "rb_vm_current_exception", 
+		    "rb_vm_current_exception",
 		    RubyObjTy, NULL));
     }
     return CallInst::Create(currentExceptionFunc, "", bb);
@@ -2272,11 +2268,11 @@ RoxorCompiler::compile_optimized_dispatch_call(SEL sel, int argc,
 {
     // The not operator (!).
     if (sel == selNot) {
-	
+
 	if (current_block_func != NULL || argc != 0) {
 	    return NULL;
 	}
-	
+
 	Value *val = params[1]; // self
 
 	Function *f = bb->getParent();
@@ -2290,9 +2286,9 @@ RoxorCompiler::compile_optimized_dispatch_call(SEL sel, int argc,
 	BranchInst::Create(mergeBB, falseBB);
 	BranchInst::Create(mergeBB, trueBB);
 
-	bb = mergeBB;	
+	bb = mergeBB;
 
-	PHINode *pn = PHINode::Create(RubyObjTy, "", bb);
+	PHINode *pn = PHINode::Create(RubyObjTy, 0, "", bb);
 	pn->addIncoming(trueVal, falseBB);
 	pn->addIncoming(falseVal, trueBB);
 
@@ -2300,7 +2296,7 @@ RoxorCompiler::compile_optimized_dispatch_call(SEL sel, int argc,
     }
     // Pure arithmetic operations.
     else if (sel == selPLUS || sel == selMINUS || sel == selDIV || sel == selMOD
-	     || sel == selMULT || sel == selLT || sel == selLE 
+	     || sel == selMULT || sel == selLT || sel == selLE
 	     || sel == selGT || sel == selGE || sel == selEq
 	     || sel == selNeq || sel == selEqq) {
 
@@ -2451,7 +2447,7 @@ RoxorCompiler::compile_optimized_dispatch_call(SEL sel, int argc,
 	BranchInst::Create(mergeBB, elseBB);
 
 	bb = mergeBB;
-	PHINode *pn = PHINode::Create(RubyObjTy, "op_tmp", mergeBB);
+	PHINode *pn = PHINode::Create(RubyObjTy, 0, "op_tmp", mergeBB);
 	pn->addIncoming(thenVal, thenBB);
 	pn->addIncoming(elseVal, elseBB);
 
@@ -2513,7 +2509,7 @@ RoxorCompiler::compile_literal(VALUE val)
 	//	10.times { s = 'foo'; s << 'bar' }
 	//
 	if (rb_str_chars_len(val) == 0) {
-	    if (newString3Func == NULL) {	
+	    if (newString3Func == NULL) {
 		newString3Func = cast<Function>(
 			module->getOrInsertFunction(
 			    "rb_str_new_empty", RubyObjTy, NULL));
@@ -2526,7 +2522,7 @@ RoxorCompiler::compile_literal(VALUE val)
 
 	    assert(cstr_len > 0);
 
-	    if (newString2Func == NULL) {	
+	    if (newString2Func == NULL) {
 		newString2Func = cast<Function>(
 			module->getOrInsertFunction(
 			    "rb_str_new",
@@ -2537,7 +2533,7 @@ RoxorCompiler::compile_literal(VALUE val)
 		compile_const_global_string(cstr, cstr_len),
 		ConstantInt::get(Int32Ty, cstr_len)
 	    };
-	    return CallInst::Create(newString2Func, args, args + 2, "", bb);
+	    return CallInst::Create(newString2Func, args, "", bb);
 	}
     }
 
@@ -2548,7 +2544,7 @@ Value *
 RoxorCompiler::compile_immutable_literal(VALUE val)
 {
     GC_RETAIN(val);
-    return ConstantInt::get(RubyObjTy, (long)val); 
+    return ConstantInt::get(RubyObjTy, (long)val);
 }
 
 Value *
@@ -2589,7 +2585,7 @@ RoxorAOTCompiler::compile_global_entry(NODE *node)
 {
     const ID name = node->nd_vid;
     assert(name > 0);
-    
+
     std::map<ID, GlobalVariable *>::iterator iter = global_entries.find(name);
     GlobalVariable *gvar = NULL;
     if (iter == global_entries.end()) {
@@ -2627,7 +2623,7 @@ RoxorCompiler::compile_push_outer(Value *klass)
 	    module->getOrInsertFunction("rb_vm_push_outer",
 					PtrTy, RubyObjTy, NULL));
     }
-    
+
     Value *val = CallInst::Create(pushOuterFunc, klass, "", bb);
     outer_stack = new GlobalVariable(*RoxorCompiler::module, PtrTy, false,
 				     GlobalValue::InternalLinkage,
@@ -2646,7 +2642,7 @@ RoxorCompiler::compile_pop_outer(bool need_release)
 	    module->getOrInsertFunction("rb_vm_pop_outer",
 		    VoidTy, Int8Ty, NULL));
     }
-    
+
     Value *val = ConstantInt::get(Int8Ty, need_release ? 1 : 0);
     CallInst::Create(popOuterFunc, val, "", bb);
 }
@@ -2669,7 +2665,7 @@ RoxorCompiler::compile_set_current_outer(void)
 	    module->getOrInsertFunction("rb_vm_set_current_outer",
 					PtrTy, PtrTy, NULL));
     }
-    
+
     return CallInst::Create(setCurrentOuterFunc, compile_outer_stack(), "", bb);
 }
 
@@ -2680,7 +2676,7 @@ RoxorCompiler::compile_set_current_scope(Value *klass, Value *scope)
 	klass,
 	scope
     };
-    CallInst::Create(setScopeFunc, args, args + 2, "", bb);
+    CallInst::Create(setScopeFunc, args, "", bb);
 }
 
 void
@@ -2696,7 +2692,7 @@ RoxorCompiler::compile_keep_vars(BasicBlock *startBB, BasicBlock *mergeBB)
 {
     if (keepVarsFunc == NULL) {
 	// void rb_vm_keep_vars(rb_vm_var_uses *uses, int lvars_size, ...)
-	std::vector<const Type *> types;
+	std::vector<Type *> types;
 	types.push_back(PtrTy);
 	types.push_back(Int32Ty);
 	FunctionType *ft = FunctionType::get(VoidTy, types, true);
@@ -2735,7 +2731,7 @@ RoxorCompiler::compile_keep_vars(BasicBlock *startBB, BasicBlock *mergeBB)
     }
     params[1] = ConstantInt::get(Int32Ty, vars_count);
 
-    CallInst::Create(keepVarsFunc, params.begin(), params.end(), "", bb);
+    CallInst::Create(keepVarsFunc, params, "", bb);
 
     BranchInst::Create(mergeBB, bb);
 }
@@ -2797,7 +2793,7 @@ RoxorCompiler::compile_scope(NODE *node)
     }
 
     // Create function type.
-    std::vector<const Type *> types;
+    std::vector<Type *> types;
     types.push_back(RubyObjTy);	// self
     types.push_back(PtrTy);	// sel
     if (has_dvars) {
@@ -2972,7 +2968,7 @@ RoxorCompiler::compile_scope(NODE *node)
 
     Value *val = NULL;
     if (node->nd_body != NULL) {
-	entry_bb = BasicBlock::Create(context, "entry_point", f); 
+	entry_bb = BasicBlock::Create(context, "entry_point", f);
 	BranchInst::Create(entry_bb, bb);
 	bb = entry_bb;
 
@@ -3078,7 +3074,7 @@ RoxorCompiler::compile_scope(NODE *node)
 	    }
 	    CallInst *call_inst = CallInst::Create(
 		    invoke->getCalledValue(),
-		    params.begin(), params.end(),
+		    params,
 		    "",
 		    invoke);
 
@@ -3227,11 +3223,11 @@ rescan_args:
 	    std::vector<Value *> params;
 	    Function::arg_iterator arg = f->arg_begin();
 	    params.push_back(arg++); // self
-	    params.push_back(arg++); // sel 
+	    params.push_back(arg++); // sel
 	    for (NODE *n = args; n != NULL; n = n->nd_next) {
 		params.push_back(compile_node(n->nd_head));
 	    }
-	    CallInst *inst = CallInst::Create(f, params.begin(), params.end(),
+	    CallInst *inst = CallInst::Create(f, params,
 		    "", bb);
 	    inst->setTailCall(true); // Promote for tail call elimitation.
 	    Value *optz_value = cast<Value>(inst);
@@ -3245,7 +3241,7 @@ rescan_args:
 	    BranchInst::Create(mergeBB, bb);
 
 	    bb = mergeBB;
-	    PHINode *pn = PHINode::Create(RubyObjTy, "", bb);
+	    PHINode *pn = PHINode::Create(RubyObjTy, 0, "", bb);
 	    pn->addIncoming(optz_value, thenBB);
 	    pn->addIncoming(unoptz_value, elseBB);
 	    return pn;
@@ -3253,7 +3249,7 @@ rescan_args:
     }
 
     // Let's set the block state as NULL temporarily, when we
-    // compile the receiver and the arguments. 
+    // compile the receiver and the arguments.
     Function *old_current_block_func = current_block_func;
     NODE *old_current_block_node = current_block_node;
     current_block_func = NULL;
@@ -3286,7 +3282,7 @@ rescan_args:
 		    compile_const_pointer(NULL));
 	    sel_val = SelectInst::Create(is_null, sel_val, dyn_sel, "", bb);
 	}
-    }	
+    }
     else {
 	assert(super_call);
 	// A super call outside a method definition. Compile a
@@ -3315,7 +3311,7 @@ rescan_args:
     // Call option.
     unsigned char call_opt = 0;
     if (super_call) {
-	call_opt |= DISPATCH_SUPER; 
+	call_opt |= DISPATCH_SUPER;
     }
     else if (nd_type(node) == NODE_VCALL) {
 	call_opt |= DISPATCH_VCALL;
@@ -3357,7 +3353,7 @@ rescan_args:
 		    // on demand!
 		    dvars.push_back(argid);
 		}
-		argslot = compile_dvar_slot(argid);			
+		argslot = compile_dvar_slot(argid);
 	    }
 	    else {
 		argslot = compile_lvar_slot(argid);
@@ -3486,7 +3482,7 @@ RoxorCompiler::compile_yield(NODE *node)
 	opt |= DISPATCH_SPLAT;
     }
     params.push_back(ConstantInt::get(Int8Ty, opt));
-    params.push_back(argv);    
+    params.push_back(argv);
 
     Instruction *val = compile_protected_call(yieldFunc, params);
     attach_current_line_metadata(val);
@@ -3596,8 +3592,8 @@ RoxorCompiler::compile_node0(NODE *node)
 
 		BranchInst::Create(mergeBB, elseBB);
 
-		bb = mergeBB;	
-		PHINode *pn = PHINode::Create(RubyObjTy, "", bb);
+		bb = mergeBB;
+		PHINode *pn = PHINode::Create(RubyObjTy, 0, "", bb);
 		pn->addIncoming(newRecvVal, falseBB);
 		pn->addIncoming(recvVal, elseBB);
 
@@ -3609,7 +3605,7 @@ RoxorCompiler::compile_node0(NODE *node)
 	    {
 		assert(node->nd_recv != NULL);
 		assert(node->nd_value != NULL);
-		
+
 		Value *recvVal = compile_node(node->nd_recv);
 
 		Function *f = bb->getParent();
@@ -3627,8 +3623,8 @@ RoxorCompiler::compile_node0(NODE *node)
 
 		BranchInst::Create(mergeBB, elseBB);
 
-		bb = mergeBB;	
-		PHINode *pn = PHINode::Create(RubyObjTy, "", bb);
+		bb = mergeBB;
+		PHINode *pn = PHINode::Create(RubyObjTy, 0, "", bb);
 		pn->addIncoming(newRecvVal, notNilBB);
 		pn->addIncoming(recvVal, elseBB);
 
@@ -3745,7 +3741,7 @@ RoxorCompiler::compile_node0(NODE *node)
 		}
 
 		// a.send(:[]=, 0, tmp)
- 
+
 		if (nd_type(node) == NODE_OP_ASGN1) {
 		    sel = selASET;
 		}
@@ -3782,9 +3778,9 @@ RoxorCompiler::compile_node0(NODE *node)
 
 		BranchInst::Create(mergeBB, touchedBB);
 
-		bb = mergeBB;	
+		bb = mergeBB;
 
-		PHINode *pn = PHINode::Create(RubyObjTy, "", bb);
+		PHINode *pn = PHINode::Create(RubyObjTy, 0, "", bb);
 		pn->addIncoming(tmp, untouchedBB);
 		pn->addIncoming(ret, touchedBB);
 
@@ -3914,7 +3910,7 @@ RoxorCompiler::compile_node0(NODE *node)
 		BranchInst::Create(mergeBB, failBB);
 
 		bb = mergeBB;
-		PHINode *pn = PHINode::Create(RubyObjTy, "", mergeBB);
+		PHINode *pn = PHINode::Create(RubyObjTy, 0, "", mergeBB);
 		pn->addIncoming(leftVal, leftTrueBB);
 		pn->addIncoming(rightVal, rightTrueBB);
 		pn->addIncoming(rightVal, failBB);
@@ -3975,7 +3971,7 @@ RoxorCompiler::compile_node0(NODE *node)
 		BranchInst::Create(mergeBB, rightFailBB);
 
 		bb = mergeBB;
-		PHINode *pn = PHINode::Create(RubyObjTy, "", mergeBB);
+		PHINode *pn = PHINode::Create(RubyObjTy, 0, "", mergeBB);
 		pn->addIncoming(leftVal, leftFailBB);
 		pn->addIncoming(rightVal, rightFailBB);
 		pn->addIncoming(rightVal, successBB);
@@ -4009,9 +4005,9 @@ RoxorCompiler::compile_node0(NODE *node)
 		DEBUG_LEVEL_DEC();
 		elseBB = bb;
 		BranchInst::Create(mergeBB, elseBB);
-		
+
 		bb = mergeBB;
-		PHINode *pn = PHINode::Create(RubyObjTy, "iftmp", mergeBB);
+		PHINode *pn = PHINode::Create(RubyObjTy, 0, "iftmp", mergeBB);
 		pn->addIncoming(thenVal, thenBB);
 		pn->addIncoming(elseVal, elseBB);
 
@@ -4072,7 +4068,7 @@ RoxorCompiler::compile_node0(NODE *node)
 		NODE *body = node->nd_body;
 		if (body != NULL) {
 		    assert(nd_type(body) == NODE_SCOPE);
-		    if (body->nd_body != NULL) {	
+		    if (body->nd_body != NULL) {
 			Value *old_self = current_self;
 			current_self = classVal;
 
@@ -4121,7 +4117,7 @@ RoxorCompiler::compile_node0(NODE *node)
 			// Create a rescue block for the module scope function,
 			// since it might raise an exception and we do want
 			// to properly restore the context information.
-			Function *main_f = bb->getParent(); 
+			Function *main_f = bb->getParent();
 			BasicBlock *old_rescue_invoke_bb = rescue_invoke_bb;
 			BasicBlock *new_rescue_invoke_bb =
 			    BasicBlock::Create(context, "rescue", main_f);
@@ -4266,7 +4262,7 @@ RoxorCompiler::compile_node0(NODE *node)
 		    ConstantInt::get(Int32Ty, count),
 		    argv
 		};
-		return CallInst::Create(newArrayFunc, args, args + 2, "", bb);
+		return CallInst::Create(newArrayFunc, args, "", bb);
 	    }
 	    break;
 
@@ -4291,7 +4287,7 @@ RoxorCompiler::compile_node0(NODE *node)
 			    key,
 			    val
 			};
-			CallInst::Create(storeHashFunc, args, args + 3, "", bb);
+			CallInst::Create(storeHashFunc, args, "", bb);
 		    }
 		}
 
@@ -4397,7 +4393,7 @@ RoxorCompiler::compile_node0(NODE *node)
 		    compile_id(node->u1.id),
 		    compile_id(node->u2.id)
 		};
-		CallInst::Create(valiasFunc, args, args + 2, "", bb);
+		CallInst::Create(valiasFunc, args, "", bb);
 
 		return nilVal;
 	    }
@@ -4537,7 +4533,7 @@ RoxorCompiler::compile_node0(NODE *node)
 		BasicBlock *not_rescued_bb = bb;
 		BranchInst::Create(merge_bb, not_rescued_bb);
 
-		PHINode *pn = PHINode::Create(RubyObjTy, "rescue_result",
+		PHINode *pn = PHINode::Create(RubyObjTy, 0, "rescue_result",
 			merge_bb);
 		pn->addIncoming(not_rescued_val, not_rescued_bb);
 
@@ -4614,7 +4610,7 @@ RoxorCompiler::compile_node0(NODE *node)
 		    Function *isEHActiveFunc = NULL;
 		    if (isEHActiveFunc == NULL) {
 			// bool rb_vm_is_eh_active(int argc, ...);
-			std::vector<const Type *> types;
+			std::vector<Type *> types;
 			types.push_back(Int32Ty);
 			FunctionType *ft = FunctionType::get(Int8Ty,
 				types, true);
@@ -4624,17 +4620,16 @@ RoxorCompiler::compile_node0(NODE *node)
 		    }
 
 		    const int size = exceptions_to_catch.size();
-		    exceptions_to_catch.insert(exceptions_to_catch.begin(), 
+		    exceptions_to_catch.insert(exceptions_to_catch.begin(),
 			    ConstantInt::get(Int32Ty, size));
 
-		    Value *handler_active = CallInst::Create(isEHActiveFunc, 
-			    exceptions_to_catch.begin(), 
-			    exceptions_to_catch.end(), "", bb);
+		    Value *handler_active = CallInst::Create(isEHActiveFunc,
+			    exceptions_to_catch, "", bb);
 
 		    Value *is_handler_active = new ICmpInst(*bb,
 			    ICmpInst::ICMP_EQ, handler_active,
 			    ConstantInt::get(Int8Ty, 1));
-		    
+
 		    handler_bb = BasicBlock::Create(context, "handler", f);
 		    BasicBlock *next_handler_bb =
 			BasicBlock::Create(context, "handler", f);
@@ -4683,7 +4678,7 @@ RoxorCompiler::compile_node0(NODE *node)
 		    return handlers.front().first;
 		}
 		else {
-		    PHINode *pn = PHINode::Create(RubyObjTy, "op_tmp", bb);
+		    PHINode *pn = PHINode::Create(RubyObjTy, 0, "op_tmp", bb);
 		    std::vector<std::pair<Value *, BasicBlock *> >::iterator
 			iter = handlers.begin();
 		    while (iter != handlers.end()) {
@@ -4715,7 +4710,7 @@ RoxorCompiler::compile_node0(NODE *node)
 		// the ensure for when the block is left without using return
 		BasicBlock *ensure_normal_bb = BasicBlock::Create(context,
 			"ensure.no.return", f);
-		PHINode *new_ensure_pn = PHINode::Create(RubyObjTy,
+		PHINode *new_ensure_pn = PHINode::Create(RubyObjTy, 0,
 			"ensure.phi", ensure_return_bb);
 		ensure_pn = new_ensure_pn;
 
@@ -4846,7 +4841,7 @@ RoxorCompiler::compile_node0(NODE *node)
 		current_loop_begin_bb = loopBB;
 		current_loop_body_bb = bodyBB;
 		current_loop_end_bb = afterBB;
-		current_loop_exit_val = PHINode::Create(RubyObjTy,
+		current_loop_exit_val = PHINode::Create(RubyObjTy, 0,
 			"loop_exit", afterBB);
 		current_loop_exit_val->addIncoming(nilVal, exitBB);
 
@@ -4907,7 +4902,7 @@ RoxorCompiler::compile_node0(NODE *node)
 		BasicBlock *caseMergeBB = BasicBlock::Create(context,
 			"case_merge", f);
 
-		PHINode *pn = PHINode::Create(RubyObjTy, "case_tmp",
+		PHINode *pn = PHINode::Create(RubyObjTy, 0, "case_tmp",
 			caseMergeBB);
 
 		Value *comparedToVal = NULL;
@@ -5107,7 +5102,7 @@ RoxorAOTCompiler::compile_main_function(NODE *node, bool *can_be_interpreted)
     Function *func = cast<Function>(val);
     func->setLinkage(GlobalValue::ExternalLinkage);
 
-    Function *init_func = compile_init_function(); 
+    Function *init_func = compile_init_function();
     BasicBlock::InstListType &list = func->getEntryBlock().getInstList();
     list.insert(list.begin(), CallInst::Create(init_func, ""));
 
@@ -5191,7 +5186,7 @@ RoxorAOTCompiler::compile_init_function(void)
 	switch (TYPE(val)) {
 	    case T_CLASS:
 		{
-		    // This strange literal seems to be only emitted for 
+		    // This strange literal seems to be only emitted for
 		    // `for' loops.
 		    const char *cname = class_getName((Class)val);
 		    lit_val = CallInst::Create(getClassFunc,
@@ -5221,7 +5216,7 @@ RoxorAOTCompiler::compile_init_function(void)
 			ConstantInt::get(Int32Ty, chars_len),
 			ConstantInt::get(Int32Ty, rb_reg_options(val))
 		    };
-		    lit_val = CallInst::Create(newRegexp2Func, args, args + 3,
+		    lit_val = CallInst::Create(newRegexp2Func, args,
 			    "", bb);
 		}
 		break;
@@ -5250,7 +5245,7 @@ RoxorAOTCompiler::compile_init_function(void)
 
 		    lit_val = compile_range(ConstantInt::get(RubyObjTy, beg),
 			    ConstantInt::get(RubyObjTy, end),
-			    exclude_end, true);	
+			    exclude_end, true);
 		}
 		else {
 		    printf("unrecognized literal `%s' (class `%s' type %d)\n",
@@ -5348,7 +5343,7 @@ RoxorAOTCompiler::compile_init_function(void)
 			    false), PtrTy, "", bb),
 		ConstantInt::get(Int8Ty, 0)
 	    };
-	    CallInst::Create(addStub, args, args + 3, "", bb);
+	    CallInst::Create(addStub, args, "", bb);
 	}
 	catch (...) {}
     }
@@ -5365,7 +5360,7 @@ RoxorAOTCompiler::compile_init_function(void)
 			    TypeArity(types) - 2, true), PtrTy, "", bb),
 		ConstantInt::get(Int8Ty, 1)
 	    };
-	    CallInst::Create(addStub, args, args + 3, "", bb);
+	    CallInst::Create(addStub, args, "", bb);
 	}
 	catch (...) {}
     }
@@ -5420,7 +5415,7 @@ RoxorCompiler::compile_write_attr(ID name)
 			    "rb_objc_willChangeValueForKey",
 			    VoidTy, RubyObjTy, RubyObjTy, NULL));
 	}
-	CallInst::Create(willChangeValueFunc, args, args + 2, "", bb);
+	CallInst::Create(willChangeValueFunc, "", bb);
 
 	val = compile_ivar_assignment(name, new_val);
 
@@ -5430,7 +5425,7 @@ RoxorCompiler::compile_write_attr(ID name)
 			    "rb_objc_didChangeValueForKey",
 			    VoidTy, RubyObjTy, RubyObjTy, NULL));
 	}
-	CallInst::Create(didChangeValueFunc, args, args + 2, "", bb);
+	CallInst::Create(didChangeValueFunc, args, "", bb);
     }
     else {
 	val = compile_ivar_assignment(name, new_val);
@@ -5448,7 +5443,7 @@ convert_error(const char type, VALUE val)
 	     "cannot convert object `%s' (%s) to Objective-C type `%c'",
 	     RSTRING_PTR(rb_inspect(val)),
 	     rb_obj_classname(val),
-	     type); 
+	     type);
 }
 
 void
@@ -5466,7 +5461,7 @@ RoxorCompiler::compile_get_struct_fields(Value *val, Value *buf,
 	buf,
 	compile_const_pointer(bs_boxed)
     };
-    CallInst::Create(getStructFieldsFunc, args, args + 3, "", bb);
+    CallInst::Create(getStructFieldsFunc, args, "", bb);
 }
 
 extern "C"
@@ -5543,15 +5538,15 @@ RoxorCompiler::compile_lambda_to_funcptr(const char *type,
     assert(buf != NULL);
 
     const char *p = GetFirstType(type + 1, buf, buf_len);
-    const Type *ret_type = convert_type(buf);
+    Type *ret_type = convert_type(buf);
     int argc = 0;
 
     std::vector<std::string> arg_ctypes;
-    std::vector<const Type *> arg_types;
+    std::vector<Type *> arg_types;
 
     if (is_block) {
 	// The block literal argument.
-	arg_types.push_back(PtrTy);	
+	arg_types.push_back(PtrTy);
     }
 
     while (*p != _MR_C_LAMBDA_E) {
@@ -5643,7 +5638,7 @@ RoxorCompiler::compile_lambda_to_funcptr(const char *type,
 }
 
 static void
-decompose_ary_type(const char *type, long *size_p, char *elem_type_p, 
+decompose_ary_type(const char *type, long *size_p, char *elem_type_p,
 	const size_t elem_type_len)
 {
     // Syntax is [8S] for `short foo[8]'.
@@ -5767,7 +5762,7 @@ RoxorCompiler::compile_conversion_to_c(const char *type, Value *val,
 			Value *data = compile_get_opaque_data(val, bs_boxed,
 				ConstantPointerNull::get(PtrPtrTy));
 			data = new BitCastInst(data,
-				PointerType::getUnqual(convert_type(type)), 
+				PointerType::getUnqual(convert_type(type)),
 				"", bb);
 			new StoreInst(new LoadInst(data, "", bb), slot, bb);
 		    }
@@ -5797,7 +5792,7 @@ RoxorCompiler::compile_conversion_to_c(const char *type, Value *val,
 				ConstantInt::get(Int32Ty, i)
 			    };
 			    Value *fslot = GetElementPtrInst::Create(slot,
-				    slot_idx, slot_idx + 2, "", bb);
+				    slot_idx, "", bb);
 
 			    RoxorCompiler::compile_conversion_to_c(ftype, fval,
 				    fslot);
@@ -5837,7 +5832,7 @@ RoxorCompiler::compile_conversion_to_c(const char *type, Value *val,
 		    funcptr,
 		    val
 		};
-		CallInst::Create(initBlockFunc, args, args + 3, "", bb);
+		CallInst::Create(initBlockFunc, args, "", bb);
 		return new BitCastInst(block_lit, PtrTy, "", bb);
 	    }
 	    break;
@@ -5854,8 +5849,8 @@ RoxorCompiler::compile_conversion_to_c(const char *type, Value *val,
 
 	case _C_ARY_B:
 	    {
-		const ArrayType *ary_type = cast<ArrayType>(convert_type(type));
-		const Type *elem_type = ary_type->getElementType();
+		ArrayType *ary_type = cast<ArrayType>(convert_type(type));
+		Type *elem_type = ary_type->getElementType();
 		const unsigned elem_count = ary_type->getNumElements();
 
 		char elem_c_type[100];
@@ -5865,9 +5860,9 @@ RoxorCompiler::compile_conversion_to_c(const char *type, Value *val,
 		Value *elem_count_val = ConstantInt::get(Int32Ty, elem_count);
 		Value *args[] = {
 		    val,
-		    elem_count_val	
+		    elem_count_val
 		};
-		val = CallInst::Create(checkArrayFunc, args, args + 2, "", bb);
+		val = CallInst::Create(checkArrayFunc, args, "", bb);
 
 		slot = new BitCastInst(slot, PointerType::getUnqual(elem_type),
 			"", bb);
@@ -5876,10 +5871,10 @@ RoxorCompiler::compile_conversion_to_c(const char *type, Value *val,
 		    Value *idx = ConstantInt::get(Int32Ty, i);
 		    Value *args[] = {
 			val,
-			idx	
+			idx
 		    };
 		    Value *elem = CallInst::Create(entryArrayFunc,
-			    args, args + 2, "", bb);
+			    args, "", bb);
 		    Value *elem_slot = GetElementPtrInst::Create(slot, idx,
 			    "", bb);
 		    compile_conversion_to_c(elem_c_type, elem, elem_slot);
@@ -5899,7 +5894,7 @@ RoxorCompiler::compile_conversion_to_c(const char *type, Value *val,
 	val,
 	slot
     };
-    CallInst::Create(func, args, args + 2, "", bb);
+    CallInst::Create(func, args, "", bb);
     return new LoadInst(slot, "", bb);
 }
 
@@ -5943,7 +5938,7 @@ RoxorCompiler::compile_new_struct(Value *klass, std::vector<Value *> &fields)
 {
     if (newStructFunc == NULL) {
 	// VALUE rb_vm_new_struct(VALUE klass, int argc, ...)
-	std::vector<const Type *> types;
+	std::vector<Type *> types;
 	types.push_back(RubyObjTy);
 	types.push_back(Int32Ty);
 	FunctionType *ft = FunctionType::get(RubyObjTy, types, true);
@@ -5956,8 +5951,8 @@ RoxorCompiler::compile_new_struct(Value *klass, std::vector<Value *> &fields)
     fields.insert(fields.begin(), argc);
     fields.insert(fields.begin(), klass);
 
-    return CallInst::Create(newStructFunc, fields.begin(), fields.end(),
-	    "", bb); 
+    return CallInst::Create(newStructFunc, fields,
+	    "", bb);
 }
 
 Value *
@@ -5973,7 +5968,7 @@ RoxorCompiler::compile_new_opaque(Value *klass, Value *val)
 	klass,
 	val
     };
-    return CallInst::Create(newOpaqueFunc, args, args + 2, "", bb); 
+    return CallInst::Create(newOpaqueFunc, args, "", bb);
 }
 
 Value *
@@ -5988,7 +5983,7 @@ RoxorCompiler::compile_new_pointer(const char *type, Value *val)
 	compile_const_global_string(type),
 	val
     };
-    return CallInst::Create(newPointerFunc, args, args + 2, "", bb);
+    return CallInst::Create(newPointerFunc, args, "", bb);
 }
 
 Value *
@@ -6006,7 +6001,7 @@ RoxorCompiler::compile_xmalloc(size_t len)
 
 Value *
 RoxorCompiler::compile_conversion_to_ruby(const char *type,
-	const Type *llvm_type, Value *val)
+	Type *llvm_type, Value *val)
 {
     type = SkipTypeModifiers(type);
 
@@ -6109,7 +6104,7 @@ RoxorCompiler::compile_conversion_to_ruby(const char *type,
 				i++) {
 
 			    const char *ftype = bs_boxed->as.s->fields[i].type;
-			    const Type *llvm_ftype = convert_type(ftype);
+			    Type *llvm_ftype = convert_type(ftype);
 			    Value *fval = ExtractValueInst::Create(val, i, "",
 				    bb);
 			    params.push_back(compile_conversion_to_ruby(ftype,
@@ -6141,7 +6136,7 @@ RoxorCompiler::compile_conversion_to_ruby(const char *type,
 		char elem_c_type[100];
 		decompose_ary_type(type, &elem_count, elem_c_type,
 			sizeof elem_c_type);
-		const Type *elem_type = convert_type(elem_c_type);
+		Type *elem_type = convert_type(elem_c_type);
 
 		const bool is_ary = ArrayType::classof(val->getType());
 		if (!is_ary) {
@@ -6171,7 +6166,7 @@ RoxorCompiler::compile_conversion_to_ruby(const char *type,
 		    ConstantInt::get(Int32Ty, elem_count),
 		    elems
 		};
-		return CallInst::Create(newArrayFunc, args, args + 2, "", bb);
+		return CallInst::Create(newArrayFunc, args, "", bb);
 	    }
 	    break;
     }
@@ -6180,11 +6175,11 @@ RoxorCompiler::compile_conversion_to_ruby(const char *type,
 	rb_raise(rb_eTypeError, "unrecognized compile type `%s' to Ruby", type);
 	abort();
     }
- 
+
     return CallInst::Create(func, val, "", bb);
 }
 
-const Type *
+Type *
 RoxorCompiler::convert_type(const char *type)
 {
     type = SkipTypeModifiers(type);
@@ -6235,11 +6230,11 @@ RoxorCompiler::convert_type(const char *type)
 
 	case _C_BFLD:
 	    {
-		// Syntax is `b3' for `unsigned foo:3'. 
+		// Syntax is `b3' for `unsigned foo:3'.
 		const long size = atol(type + 1);
 		if (size <= 0) {
 		    rb_raise(rb_eTypeError, "invalid bitfield type: %s",
-			    type);	
+			    type);
 		}
 		return ArrayType::get(BitTy, size);
 	    }
@@ -6250,7 +6245,7 @@ RoxorCompiler::convert_type(const char *type)
 		char buf[100];
 		long size = 0;
 		decompose_ary_type(type, &size, buf, sizeof buf);
-		const Type *type = convert_type(buf);
+		Type *type = convert_type(buf);
 		// Now, we can return the array type.
 		return ArrayType::get(type, size);
 	    }
@@ -6263,7 +6258,7 @@ RoxorCompiler::convert_type(const char *type)
 	    rb_vm_bs_boxed_t *bs_boxed = GET_CORE()->find_bs_struct(type);
 	    if (bs_boxed != NULL) {
 		if (bs_boxed->type == NULL) {
-		    std::vector<const Type *> s_types;
+		    std::vector<Type *> s_types;
 		    for (unsigned i = 0; i < bs_boxed->as.s->fields_count;
 			 i++) {
 
@@ -6316,7 +6311,7 @@ RoxorCompiler::compile_stub(const char *types, bool variadic, int min_argc,
     Function::arg_iterator arg = f->arg_begin();
     Value *imp_arg = arg++;
 
-    std::vector<const Type *> f_types;
+    std::vector<Type *> f_types;
     std::vector<Value *> params;
 
     const size_t buf_len = strlen(types) + 1;
@@ -6326,7 +6321,7 @@ RoxorCompiler::compile_stub(const char *types, bool variadic, int min_argc,
 
     // retval
     const char *p = GetFirstType(types, buf, buf_len);
-    const Type *ret_type = convert_type(buf);
+    Type *ret_type = convert_type(buf);
 
     Value *sret = NULL;
     if (GET_CORE()->is_large_struct_type(ret_type)) {
@@ -6380,8 +6375,8 @@ RoxorCompiler::compile_stub(const char *types, bool variadic, int min_argc,
 	    stop_arg_type = true;
 	}
 
-	const Type *llvm_type = convert_type(buf);
-	const Type *f_type = llvm_type;
+	Type *llvm_type = convert_type(buf);
+	Type *f_type = llvm_type;
 	if (GET_CORE()->is_large_struct_type(llvm_type)) {
 	    // We are passing a large struct, we need to mark this argument
 	    // with the byval attribute and configure the internal stub
@@ -6417,8 +6412,8 @@ RoxorCompiler::compile_stub(const char *types, bool variadic, int min_argc,
     Value *imp = new BitCastInst(imp_arg, PointerType::getUnqual(ft), "", bb);
 
     // Compile call.
-    CallInst *imp_call = CallInst::Create(imp, params.begin(), params.end(),
-	    "", bb); 
+    CallInst *imp_call = CallInst::Create(imp, params,
+	    "", bb);
 
     for (std::vector<unsigned int>::iterator iter = byval_args.begin();
 	 iter != byval_args.end(); ++iter) {
@@ -6515,11 +6510,11 @@ RoxorCompiler::compile_long_arity_stub(int argc, bool is_block)
     /*Value *argc_arg = */arg++;
     Value *argv_arg = arg++;
 
-    std::vector<const Type *> f_types;
+    std::vector<Type *> f_types;
     std::vector<Value *> params;
 
     // Return type
-    const Type *ret_type = RubyObjTy;
+    Type *ret_type = RubyObjTy;
 
     // self
     f_types.push_back(RubyObjTy);
@@ -6557,7 +6552,7 @@ RoxorCompiler::compile_long_arity_stub(int argc, bool is_block)
     Value *imp = new BitCastInst(imp_arg, PointerType::getUnqual(ft), "", bb);
 
     // Compile call to the function
-    CallInst *imp_call = CallInst::Create(imp, params.begin(), params.end(),
+    CallInst *imp_call = CallInst::Create(imp, params,
 	"", bb);
 
     // Compile return value
@@ -6602,7 +6597,7 @@ RoxorCompiler::compile_lvar_slot(ID name, bool *need_wb)
     }
     if (current_block) {
 	Value *slot = compile_dvar_slot(name);
-	if (slot != NULL) {	
+	if (slot != NULL) {
 #if ROXOR_COMPILER_DEBUG
 	    printf("get_dvar %s\n", rb_id2name(name));
 #endif
@@ -6667,11 +6662,13 @@ RoxorCompiler::compile_lvar_assignment(ID vid, Value *val)
     bool need_wb = false;
     Value *slot = compile_lvar_slot(vid, &need_wb);
     if (need_wb) {
-	Value *args[] = { 
+    /*
+	Value *args[] = {
 	    new BitCastInst(slot, RubyObjPtrTy, "", bb),
 	    new BitCastInst(val, RubyObjTy, "", bb)
 	};
-	return CallInst::Create(writeBarrierFunc, args, args + 2, "", bb);
+    */
+	return CallInst::Create(writeBarrierFunc, "", bb);
     }
     else {
 	new StoreInst(val, slot, bb);
@@ -6730,7 +6727,7 @@ RoxorCompiler::compile_objc_stub(Function *ruby_func, IMP ruby_imp,
     assert(buf != NULL);
 
     const char *p = types;
-    std::vector<const Type *> f_types;
+    std::vector<Type *> f_types;
 
 #if __LP64__
     int gprcount = 0, ssecount = 0;
@@ -6739,7 +6736,7 @@ RoxorCompiler::compile_objc_stub(Function *ruby_func, IMP ruby_imp,
     // Return value.
     p = GetFirstType(p, buf, buf_len);
     std::string ret_type(buf);
-    const Type *f_ret_type = convert_type(buf);
+    Type *f_ret_type = convert_type(buf);
     const Type *f_sret_type = NULL;
     if (GET_CORE()->is_large_struct_type(f_ret_type)) {
 	// We are returning a large struct, we need to pass a pointer as the
@@ -6769,7 +6766,7 @@ RoxorCompiler::compile_objc_stub(Function *ruby_func, IMP ruby_imp,
     std::vector<unsigned int> byval_args;
     for (int i = 0; i < arity.real; i++) {
 	p = GetFirstType(p, buf, buf_len);
-	const Type *t = convert_type(buf);
+	Type *t = convert_type(buf);
 	bool enough_registers = true;
 #if __LP64__
 	int ngpr = 0, nsse = 0;
@@ -6832,7 +6829,7 @@ RoxorCompiler::compile_objc_stub(Function *ruby_func, IMP ruby_imp,
     // Convert every incoming argument into Ruby type.
     for (int i = 0; i < arity.real; i++) {
 	Value *a = arg++;
-	const Type *t = f_types[i + 2 + sret_i];
+	Type *t = f_types[i + 2 + sret_i];
 	if (std::find(byval_args.begin(), byval_args.end(),
 		    (unsigned int)i + 3 + sret_i) != byval_args.end()) {
 	    a = new LoadInst(a, "", bb);
@@ -6846,7 +6843,7 @@ RoxorCompiler::compile_objc_stub(Function *ruby_func, IMP ruby_imp,
     // Create the Ruby implementation type (unless it's already provided).
     Value *imp;
     if (ruby_func == NULL) {
-	std::vector<const Type *> ruby_func_types;
+	std::vector<Type *> ruby_func_types;
 	ruby_func_types.push_back(RubyObjTy);
 	ruby_func_types.push_back(PtrTy);
 	for (int i = 0; i < arity.real; i++) {
@@ -6964,7 +6961,7 @@ RoxorCompiler::compile_block_caller(rb_vm_block_t *block)
 	//     VALUE argv[n] = {arg1, ...};
 	//     return rb_vm_block_eval2(block, rcv, sel, n, argv);
 	// }
-	std::vector<const Type *> stub_types;
+	std::vector<Type *> stub_types;
 	stub_types.push_back(RubyObjTy);
 	stub_types.push_back(PtrTy);
 	for (int i = 0; i < arity; i++) {
@@ -6996,7 +6993,7 @@ RoxorCompiler::compile_block_caller(rb_vm_block_t *block)
 	argv
     };
     Value *retval = compile_protected_call(blockEvalFunc, args, args + 5);
-    ReturnInst::Create(context, retval, bb);	
+    ReturnInst::Create(context, retval, bb);
     return f;
 }
 
@@ -7011,7 +7008,7 @@ RoxorCompiler::compile_mri_stub(void *imp, const int arity)
     }
 
     // Prepare function type for the stub.
-    std::vector<const Type *> stub_types;
+    std::vector<Type *> stub_types;
     stub_types.push_back(RubyObjTy); 		// self
     stub_types.push_back(PtrTy);		// SEL
     if (arity == -2) {
@@ -7039,16 +7036,16 @@ RoxorCompiler::compile_mri_stub(void *imp, const int arity)
     // Register the receiver and selector to the VM (for rb_call_super()).
     if (setCurrentMRIMethodContext == NULL) {
 	// void rb_vm_set_current_mri_method_context(VALUE self, SEL sel)
-	setCurrentMRIMethodContext = 
+	setCurrentMRIMethodContext =
 	    cast<Function>(module->getOrInsertFunction(
 			"rb_vm_set_current_mri_method_context",
 			VoidTy, RubyObjTy, PtrTy, NULL));
     }
     Value *args[2] = { rcv, sel };
-    CallInst::Create(setCurrentMRIMethodContext, args, args + 2, "", bb);
+    CallInst::Create(setCurrentMRIMethodContext, args, "", bb);
 
     // Prepare function types for the MRI implementation and arguments.
-    std::vector<const Type *> imp_types;
+    std::vector<Type *> imp_types;
     std::vector<Value *> params;
     if (arity == -2) {
 	imp_types.push_back(RubyObjTy); 	// self
@@ -7080,8 +7077,7 @@ RoxorCompiler::compile_mri_stub(void *imp, const int arity)
 	    PointerType::getUnqual(imp_ft), "", bb);
 
     // Call the MRI implementation and return its value.
-    CallInst *imp_call = CallInst::Create(imp_val, params.begin(),
-	    params.end(), "", bb); 
+    CallInst *imp_call = CallInst::Create(imp_val, params, "", bb);
     ReturnInst::Create(context, imp_call, bb);
 
     return f;
@@ -7098,7 +7094,7 @@ RoxorCompiler::compile_to_rval_convertor(const char *type)
 
     bb = BasicBlock::Create(context, "EntryBlock", f);
 
-    const Type *llvm_type = convert_type(type); 
+    Type *llvm_type = convert_type(type);
     ocval = new BitCastInst(ocval, PointerType::getUnqual(llvm_type), "", bb);
     ocval = new LoadInst(ocval, "", bb);
 
@@ -7121,7 +7117,7 @@ RoxorCompiler::compile_to_ocval_convertor(const char *type)
 
     bb = BasicBlock::Create(context, "EntryBlock", f);
 
-    const Type *llvm_type = convert_type(type);
+    Type *llvm_type = convert_type(type);
     ocval = new BitCastInst(ocval, PointerType::getUnqual(llvm_type), "", bb);
     compile_conversion_to_c(type, rval, ocval);
 
@@ -7156,7 +7152,7 @@ RoxorCompiler::compile_set_ffstate(Value *val, Value *expected,
     BranchInst::Create(mergeBB, valEqExpectedBB);
     BranchInst::Create(mergeBB, valNotEqExpectedBB);
 
-    PHINode *pn = PHINode::Create(RubyObjTy, "", mergeBB);
+    PHINode *pn = PHINode::Create(RubyObjTy, 0, "", mergeBB);
     pn->addIncoming(trueVal, valEqExpectedBB);
     pn->addIncoming(falseVal, valNotEqExpectedBB);
 
@@ -7213,7 +7209,7 @@ RoxorCompiler::compile_ff2(NODE *node)
     BranchInst::Create(mergeBB, returnFalseBB);
 
     bb = mergeBB;
-    PHINode *pn = PHINode::Create(RubyObjTy, "", mergeBB);
+    PHINode *pn = PHINode::Create(RubyObjTy, 0, "", mergeBB);
     pn->addIncoming(trueVal, returnTrueBB);
     pn->addIncoming(falseVal, returnFalseBB);
 
@@ -7246,7 +7242,7 @@ RoxorCompiler::compile_ff3(NODE *node)
     BasicBlock *returnStateBB = BasicBlock::Create(context, "return_state", f);
     BasicBlock *mergeBB = BasicBlock::Create(context, "merge", f);
 
-    
+
     // `if $state == true`
     Value *stateVal = compile_get_ffstate(ffstate);
     Value *stateIsTrueCond = new ICmpInst(*bb, ICmpInst::ICMP_EQ, stateVal,
@@ -7269,7 +7265,7 @@ RoxorCompiler::compile_ff3(NODE *node)
     BranchInst::Create(mergeBB, returnStateBB);
 
     bb = mergeBB;
-    PHINode *pn = PHINode::Create(RubyObjTy, "", mergeBB);
+    PHINode *pn = PHINode::Create(RubyObjTy, 0, "", mergeBB);
     pn->addIncoming(trueVal, returnTrueBB);
     pn->addIncoming(stateVal, returnStateBB);
 

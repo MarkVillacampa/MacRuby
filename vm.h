@@ -74,7 +74,7 @@ typedef struct rb_vm_binding {
 #define VM_METHOD_EMPTY		1 // method has an empty body (compilation)
 #define VM_METHOD_PRIVATE	2 // method is private (runtime)
 #define VM_METHOD_PROTECTED	4 // method is protected (runtime)
-#define VM_METHOD_FBODY		8 // method has a MRI C prototype (compilation) 
+#define VM_METHOD_FBODY		8 // method has a MRI C prototype (compilation)
 
 static inline int
 rb_vm_noex_flag(const int noex)
@@ -183,7 +183,7 @@ typedef struct rb_vm_thread {
     bool joined_on_exception;
     bool wait_for_mutex_lock;
     VALUE locals;	// a Hash object or Qnil
-    VALUE exception;	// killed-by exception or Qnil 
+    VALUE exception;	// killed-by exception or Qnil
     VALUE group;	// always a ThreadGroup object
     VALUE mutexes;	// an Array object or Qnil
 } rb_vm_thread_t;
@@ -275,7 +275,7 @@ rb_vm_node_arity(NODE *node)
 		abort();
 	    }
 	}
-	return arity; 
+	return arity;
     }
 
     printf("invalid node %p type %d\n", node, type);
@@ -364,7 +364,7 @@ void rb_vm_dispose_class(Class k);
 
 typedef struct {
     ID name;
-    VALUE value; 
+    VALUE value;
 } rb_object_ivar_slot_t;
 
 #define SLOT_CACHE_VIRGIN	-2
@@ -401,14 +401,14 @@ rb_vm_regrow_robject_slots(rb_object_t *obj, unsigned int new_num_slot)
 int rb_vm_get_ivar_slot(VALUE obj, ID name, bool create);
 
 static inline VALUE
-rb_vm_get_ivar_from_slot(VALUE obj, int slot) 
+rb_vm_get_ivar_from_slot(VALUE obj, int slot)
 {
     rb_object_t *robj = ROBJECT(obj);
     return robj->slots[slot].value;
 }
 
 static inline void
-rb_vm_set_ivar_from_slot(VALUE obj, VALUE val, int slot) 
+rb_vm_set_ivar_from_slot(VALUE obj, VALUE val, int slot)
 {
     rb_object_t *robj = ROBJECT(obj);
     GC_WB(&robj->slots[slot].value, val);
@@ -469,7 +469,7 @@ rb_vm_block_make_detachable_proc(rb_vm_block_t *b)
 }
 
 rb_vm_binding_t *rb_vm_create_binding(VALUE self, rb_vm_block_t *current_block,
-	rb_vm_binding_t *top_binding, rb_vm_outer_t *outer_stack, 
+	rb_vm_binding_t *top_binding, rb_vm_outer_t *outer_stack,
 	int lvars_size, va_list lvars, bool vm_push);
 rb_vm_binding_t *rb_vm_current_binding(void);
 void rb_vm_add_binding(rb_vm_binding_t *binding);
@@ -617,7 +617,7 @@ struct mcache {
 	struct {
 	    IMP imp;
 	    int argc;
-	    bs_element_method_t *bs_method;	
+	    bs_element_method_t *bs_method;
 	    rb_vm_objc_stub_t *stub;
 	} ocall;
 	struct {
@@ -860,7 +860,7 @@ class RoxorCore {
 	VALUE trap_cmd_for_signal(int signal);
 	int trap_level_for_signal(int signal);
 
-	void lock(void) { 
+	void lock(void) {
 	    assert(pthread_mutex_lock(&gl) == 0);
 	}
 	void unlock(void) {
@@ -909,7 +909,7 @@ class RoxorCore {
 	method_sources_for_sel(SEL sel, bool create) {
 	    std::map<SEL, std::map<Class, rb_vm_method_source_t *> *>::iterator
 		iter = method_sources.find(sel);
-		
+
 	    std::map<Class, rb_vm_method_source_t *> *map = NULL;
 	    if (iter == method_sources.end()) {
 		if (!create) {
@@ -929,7 +929,7 @@ class RoxorCore {
 		unsigned long *ln, char *name, size_t name_len,
 		unsigned int *interpreter_frame_idx);
 
-	void symbolize_backtrace_entry(int index, char *path, size_t path_len, 
+	void symbolize_backtrace_entry(int index, char *path, size_t path_len,
 		unsigned long *ln, char *name, size_t name_len);
 
 	void invalidate_method_cache(SEL sel);
@@ -968,11 +968,11 @@ class RoxorCore {
 
 	struct ccache *constant_cache_get(ID path);
 	void const_defined(ID path);
-	
+
 #if !defined(MACRUBY_STATIC)
-	size_t get_sizeof(const Type *type);
+	size_t get_sizeof(Type *type);
 	size_t get_sizeof(const char *type);
-	bool is_large_struct_type(const Type *type);
+	bool is_large_struct_type(Type *type);
 #endif
 
 	void register_finalizer(rb_vm_finalizer_t *finalizer);
