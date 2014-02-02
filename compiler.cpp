@@ -6662,13 +6662,11 @@ RoxorCompiler::compile_lvar_assignment(ID vid, Value *val)
     bool need_wb = false;
     Value *slot = compile_lvar_slot(vid, &need_wb);
     if (need_wb) {
-    /*
 	Value *args[] = {
 	    new BitCastInst(slot, RubyObjPtrTy, "", bb),
 	    new BitCastInst(val, RubyObjTy, "", bb)
 	};
-    */
-	return CallInst::Create(writeBarrierFunc, "", bb);
+	return CallInst::Create(writeBarrierFunc, args, "", bb);
     }
     else {
 	new StoreInst(val, slot, bb);
