@@ -13,7 +13,7 @@
 
  #include <llvm/Support/Dwarf.h>
 #if !defined(DW_LANG_Ruby)
-# define DW_LANG_Ruby llvm::dwarf::DW_LANG_lo_user + 2 // TODO: Python is 0x14, request a real number
+# define DW_LANG_Ruby llvm::dwarf::DW_LANG_ObjC // TODO: Python is 0x14, request a real number
 #endif
 
 #include <llvm/IR/LLVMContext.h>
